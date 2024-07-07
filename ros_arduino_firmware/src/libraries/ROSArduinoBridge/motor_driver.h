@@ -41,3 +41,12 @@ void setMotorSpeeds(int leftSpeed, int rightSpeed);
   Adafruit_DCMotor *myRightMotor = AFMS.getMotor(RIGHT_MOTOR_HEADER);
 #endif
 
+#ifdef TB6612_MOTOR_DRIVER
+  #define PWMA 3
+  #define AIN1 5
+  #define AIN2 4
+  #define PWMB 10
+  #define BIN1 8
+  #define BIN2 9
+  #define STBY 7
+#endif

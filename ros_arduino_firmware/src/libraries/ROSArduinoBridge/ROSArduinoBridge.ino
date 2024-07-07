@@ -45,14 +45,14 @@
  *  POSSIBILITY OF SUCH DAMAGE.
  *********************************************************************/
 
-//#define USE_BASE      // Enable/disable the base controller code
+#define USE_BASE      // Enable/disable the base controller code
 
 //#define USE_IMU       // Enable/disable use of an IMU
 
 /* Define the motor controller and encoder library you are using */
 #ifdef USE_BASE
   /* The Pololu VNH5019 dual motor driver shield */
-  #define POLOLU_VNH5019
+  //#define POLOLU_VNH5019
 
   /* The Pololu MC33926 dual motor driver shield */
   //#define POLOLU_MC33926
@@ -73,13 +73,17 @@
   // #define NO_MOTOR_CONTROLLER
   
   /* The RoboGaia encoder shield */
-  #define ROBOGAIA
+  //#define ROBOGAIA
   
   /* The RoboGaia 3-axis encoder shield */
   //#define ROBOGAIA_3_AXIS
   
   /* Encoders directly attached to Arduino board */
   //#define ARDUINO_ENC_COUNTER
+
+  #define ARDUINO_HAB_COUNTER
+
+  #define TB6612_MOTOR_DRIVER
 #endif
 
 //#define USE_SERVOS  // Enable/disable use of old PWM servo support as defined in servos.h
