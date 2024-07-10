@@ -19,7 +19,8 @@
     http://www.gnu.org/licenses/gpl.html
 """
 
-import rospy
+import rclpy
+from rclpy.node import Node
 from ros_arduino_python.arduino_driver import Arduino
 from ros_arduino_python.arduino_sensors import *
 from ros_arduino_msgs.srv import *
@@ -29,8 +30,8 @@ from ros_arduino_python.base_controller import BaseController
 from ros_arduino_python.servo_controller import Servo, ServoController
 from ros_arduino_python.follow_controller import FollowController
 from ros_arduino_python.joint_state_publisher import JointStatePublisher
-import dynamic_reconfigure.server
-import dynamic_reconfigure.client
+# import dynamic_reconfigure.server
+# import dynamic_reconfigure.client
 from geometry_msgs.msg import Twist
 from std_srvs.srv import Empty, EmptyResponse
 import os, time, thread
@@ -39,12 +40,13 @@ from serial.serialutil import SerialException
 
 controller_types = { "follow_controller" : FollowController }
 
-class ArduinoROS():
+class ArduinoROS(Node):
     def __init__(self):
-        rospy.init_node('arduino', log_level=rospy.INFO)
+        super().__init__('arduino')
+        self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
 
         # Find the actual node name in case it is set in the launch file
-        self.name = rospy.get_name()
+        self.name = self.get_name()
 
         # Cleanup when termniating the node
         rospy.on_shutdown(self.shutdown)
@@ -271,7 +273,7 @@ class ArduinoROS():
         for controller in self.device.controllers:
             controller.startup()
             
-        print "\n==> ROS Arduino Bridge ready for action!"
+        print("\n==> ROS Arduino Bridge ready for action!")
     
         # Start polling the sensors, base controller, and servo controller
         while not rospy.is_shutdown():
@@ -456,7 +458,7 @@ class ArduinoROS():
 
                 rospy.loginfo("Updating PID parameters: Kp=%0.2f, Kd=%0.2f, Ki=%0.2f, Ko=%0.2f, accel_limit=%0.2f" %(self.base_controller.Kp, self.base_controller.Kd, self.base_controller.Ki, self.base_controller.Ko, self.base_controller.accel_limit))
             except Exception as e:
-                print e
+                print(e)
 
         return config
         
@@ -479,9 +481,18 @@ class ArduinoROS():
         # Close the serial port
         self.device.close()
         
-if __name__ == '__main__':
+def main(args=None):
     try:
+        rclpy.init(args=args)
         myArduino = ArduinoROS()
+
+        rclpy.spin(myArduino)
+
+        # Destroy the node explicitly
+        # (optional - otherwise it will be done automatically
+        # when the garbage collector destroys the node object)
+        myArduino.destroy_node()
+        rclpy.shutdown()
     except KeyboardInterrupt:
         try:
             myArduino.device.serial_port.close()
@@ -492,3 +503,5 @@ if __name__ == '__main__':
         rospy.logerr("Serial exception trying to open port.")
         os._exit(0)
         
+if __name__ == '__main__':
+    main()

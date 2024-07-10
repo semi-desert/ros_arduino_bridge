@@ -1,4 +1,4 @@
 # Reading on a digital pin
-Header header
+std_msgs/Header header
 uint8 value
 

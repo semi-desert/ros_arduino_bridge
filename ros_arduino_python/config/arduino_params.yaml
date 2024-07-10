@@ -5,19 +5,19 @@
 
 port: /dev/ttyACM0
 baud: 57600
-timeout: 0.5
+timeout: 0.1
 
 rate: 50
 sensorstate_rate: 10
 
 # Are we using the base controller code
-use_base_controller: False
+use_base_controller: True
 
 # Rate to publish odom info
 base_controller_rate: 10
 
 # For a robot that uses base_footprint, change base_frame to base_footprint
-base_frame: base_link
+base_frame: base_footprint
 
 # Are we also using an IMU for heading data
 use_imu_heading: False
@@ -26,18 +26,18 @@ use_imu_heading: False
 publish_odom_base_transform: True
 
 # === Robot drivetrain parameters
-#wheel_diameter: 0.146
-#wheel_track: 0.2969
-#encoder_resolution: 8384 # from Pololu for 131:1 motors
+wheel_diameter: 0.066
+wheel_track: 0.215
+encoder_resolution: 3960 # from Pololu for 131:1 motors
 #gear_reduction: 1.0
 #motors_reversed: True
 
 # === PID parameters
-#Kp: 10
-#Kd: 12
-#Ki: 0
-#Ko: 50
-#accel_limit: 1.0
+Kp: 20
+Kd: 12
+Ki: 0
+Ko: 50
+accel_limit: 1.0
 
 # == Odometry calibration correction factors
 odom_linear_scale_correction: 1.0

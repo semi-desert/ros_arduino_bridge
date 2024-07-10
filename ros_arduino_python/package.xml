@@ -1,32 +1,18 @@
-<package>
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>ros_arduino_python</name>
-  <version>0.2.0</version>
-  <description>
-    ROS Arduino Python.
-  </description>
-  <author>Patrick Goebel</author>
-  <maintainer email="patrick@pirobot.org">Patrick Goebel</maintainer>
-  <license>BSD</license>
-  <url>http://ros.org/wiki/ros_arduino_python</url>
-  
-  <buildtool_depend>catkin</buildtool_depend>
-  
-  <build_depend>dynamic_reconfigure</build_depend>
-  <build_depend>diagnostic_updater</build_depend>
-  <build_depend>diagnostic_aggregator</build_depend>
-  <build_depend>diagnostic_msgs</build_depend>
+  <version>0.0.0</version>
+  <description>TODO: Package description</description>
+  <maintainer email="aaron@todo.todo">aaron</maintainer>
+  <license>TODO: License declaration</license>
 
-  <run_depend>rospy</run_depend>
-  <run_depend>std_msgs</run_depend>
-  <run_depend>sensor_msgs</run_depend>
-  <run_depend>geometry_msgs</run_depend>
-  <run_depend>nav_msgs</run_depend>
-  <run_depend>diagnostic_msgs</run_depend>
-  <run_depend>diagnostic_updater</run_depend>
-  <run_depend>diagnostic_aggregator</run_depend>
-  <run_depend>tf</run_depend>
-  <run_depend>ros_arduino_msgs</run_depend>
-  <run_depend>python-serial</run_depend>
-  <run_depend>dynamic_reconfigure</run_depend>
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
 </package>

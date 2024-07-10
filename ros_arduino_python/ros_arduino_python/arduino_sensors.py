@@ -438,7 +438,7 @@ class Gyro(Sensor):
         self.msg.angular_velocity_covariance = [sys.float_info.max, 0, 0, 0, sys.float_info.max, 0, 0, 0, 0.05]
         self.msg.linear_acceleration_covariance = [0, 0, 0, 0, 0, 0, 0, 0, 0]
 
-        print "\n*** DO NOT MOVE GYRO FOR", self.cal_start_interval, "SECONDS TO ALLOW OFFSET CALLIBRATION ***\n"
+        print("\n*** DO NOT MOVE GYRO FOR", self.cal_start_interval, "SECONDS TO ALLOW OFFSET CALLIBRATION ***\n")
         update_interval = 1.0 / self.rate
         cal_time = 0.0
         while cal_time < self.cal_start_interval:

@@ -1,46 +1,54 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.5)
 project(ros_arduino_msgs)
 
-find_package(catkin REQUIRED COMPONENTS std_msgs message_generation)
+find_package(ament_cmake REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
 
-add_message_files(FILES
-                  AnalogFloat.msg
-                  Analog.msg
-                  ArduinoConstants.msg
-                  Digital.msg
-                  SensorState.msg
-                 )
+set(msg_files
+        msg/AnalogFloat.msg
+        msg/Analog.msg
+        msg/ArduinoConstants.msg
+        msg/Digital.msg
+        msg/SensorState.msg
+        )
 
-add_service_files(FILES
-                  AnalogWrite.srv
-                  AnalogSensorWrite.srv
-                  AnalogFloatSensorWrite.srv
-                  AnalogPinMode.srv           
-                  AnalogRead.srv
-                  AnalogSensorRead.srv
-                  AnalogFloatSensorRead.srv
-                  DigitalPinMode.srv
-                  DigitalRead.srv
-                  DigitalSensorRead.srv
-                  DigitalSetDirection.srv
-                  DigitalSensorPinMode.srv
-                  DigitalWrite.srv
-                  DigitalSensorWrite.srv
-                  Enable.srv
-                  Relax.srv
-                  AnalogSensorRead.srv
-                  ServoAttach.srv
-                  ServoDetach.srv
-                  ServoRead.srv
-                  ServoWrite.srv
-                  SetSpeed.srv
-                  SetServoSpeed.srv
-                  UpdatePID.srv
-                 )
+set(srv_files
+        srv/AnalogWrite.srv
+        srv/AnalogSensorWrite.srv
+        srv/AnalogFloatSensorWrite.srv
+        srv/AnalogPinMode.srv           
+        srv/AnalogRead.srv
+        srv/AnalogSensorRead.srv
+        srv/AnalogFloatSensorRead.srv
+        srv/DigitalPinMode.srv
+        srv/DigitalRead.srv
+        srv/DigitalSensorRead.srv
+        srv/DigitalSetDirection.srv
+        srv/DigitalSensorPinMode.srv
+        srv/DigitalWrite.srv
+        srv/DigitalSensorWrite.srv
+        srv/Enable.srv
+        srv/Relax.srv
+        srv/ServoAttach.srv
+        srv/ServoDetach.srv
+        srv/ServoRead.srv
+        srv/ServoWrite.srv
+        srv/SetSpeed.srv
+        srv/SetServoSpeed.srv
+        srv/UpdatePID.srv
+        )
 
-generate_messages(   
-	DEPENDENCIES  
-	std_msgs  
-)  
+rosidl_generate_interfaces(${PROJECT_NAME}
+  ${msg_files}
+  ${srv_files}
+  DEPENDENCIES std_msgs
+)
 
-catkin_package(CATKIN_DEPENDS message_runtime std_msgs)
+ament_export_dependencies(rosidl_default_runtime)
+
+install(DIRECTORY msg srv
+  DESTINATION share/${PROJECT_NAME}
+)
+
+ament_package()

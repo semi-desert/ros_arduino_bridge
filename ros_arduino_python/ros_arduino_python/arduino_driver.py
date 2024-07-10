@@ -359,21 +359,21 @@ if __name__ == "__main__":
     myArduino = Arduino(port=portName, baudrate=baudRate, timeout=0.5)
     myArduino.connect()
      
-    print "Sleeping for 1 second..."
+    print("Sleeping for 1 second...")
     time.sleep(1)   
     
-    print "Reading on analog port 0", myArduino.analog_read(0)
-    print "Reading on digital port 0", myArduino.digital_read(0)
-    print "Blinking the LED 3 times"
+    print("Reading on analog port 0", myArduino.analog_read(0))
+    print("Reading on digital port 0", myArduino.digital_read(0))
+    print("Blinking the LED 3 times")
     for i in range(3):
         myArduino.digital_write(13, 1)
         time.sleep(1.0)
     #print "Current encoder counts", myArduino.encoders()
     
-    print "Connection test successful.",
+    print("Connection test successful.",)
     
     myArduino.stop()
     myArduino.close()
     
-    print "Shutting down Arduino."
+    print("Shutting down Arduino.")
     

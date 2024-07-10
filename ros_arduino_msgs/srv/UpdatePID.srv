@@ -1,5 +1,5 @@
-float32 Kp
-float32 Kd
-float32 Ki
-float32 Ko
+float32 kp
+float32 kd
+float32 ki
+float32 ko
 ---

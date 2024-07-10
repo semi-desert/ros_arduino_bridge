@@ -1,3 +1,3 @@
 # Float message from a single analog IO pin.
-Header header
+std_msgs/Header header
 float32 value

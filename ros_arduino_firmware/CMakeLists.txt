@@ -1,9 +1,7 @@
-cmake_minimum_required(VERSION 2.8.3)
+cmake_minimum_required(VERSION 3.5)
 project(ros_arduino_firmware)
 
-find_package(catkin REQUIRED)
-catkin_package(DEPENDS)
+find_package(ament_cmake REQUIRED)
+find_package(rclpy REQUIRED)
 
-install(DIRECTORY src
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
-)
+ament_package()
