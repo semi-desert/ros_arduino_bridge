@@ -1,20 +1,26 @@
+import os
 from launch import LaunchDescription
 from launch_ros.actions import Node
+from ament_index_python.packages import get_package_share_directory
+
 
 def generate_launch_description():
-
+    # FIXME yaml file parameters, it's not working now.
+    config = os.path.join(
+        get_package_share_directory('ros_arduino_python'),
+        'config',
+        'arduino_params.yaml'
+    )
     arduino_cmd = Node(
             package='ros_arduino_python',
-            executable='arduino_node',
+            executable='ros_arduino_python',
             name='arduino',
             output='screen',
             parameters=[
-                {'path_to_params_file': 'config/my_arduino_params.yaml'}
+                config
             ],
-            # clear_params=True
         )
     
     ld = LaunchDescription()
     ld.add_action(arduino_cmd)
-
     return ld

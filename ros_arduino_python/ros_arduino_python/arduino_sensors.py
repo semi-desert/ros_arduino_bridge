@@ -19,7 +19,7 @@
     http://www.gnu.org/licenses/gpl.html
 """
 
-import rospy
+import rclpy
 from sensor_msgs.msg import Range, Imu
 from geometry_msgs.msg import Twist, Quaternion, Vector3
 from ros_arduino_python.arduino_driver import CommandErrorCode, CommandException
@@ -27,7 +27,7 @@ from ros_arduino_python.diagnostics import DiagnosticsUpdater
 from ros_arduino_msgs.msg import *
 from ros_arduino_msgs.srv import *
 from math import pow, radians
-from tf.transformations import quaternion_from_euler
+from tf2.transformations import quaternion_from_euler
 import sys
 
 LOW = 0

@@ -21,13 +21,13 @@
 
 """
 
-import rospy
-import thread
+import rclpy
+import threading
 from math import pi as PI
 import os, time, sys, traceback
 from serial.serialutil import SerialException, SerialTimeoutException
 import serial
-from exceptions import Exception
+from ros_arduino_python.miscellaneous import rc_logger
 
 # Possible errors when reading/writing to the Arduino
 class CommandErrorCode:
@@ -59,11 +59,11 @@ class Arduino:
         self.debug = debug
 
         # Keep things thread safe
-        self.mutex = thread.allocate_lock()
+        self.mutex = threading.Lock()
 
     def connect(self):
         try:
-            rospy.loginfo("Looking for the Arduino on port " + str(self.port) +  " ...")
+            rc_logger.info("Looking for the Arduino on port " + str(self.port) +  " ...")
             
             # The port has to be open once with the default baud rate before opening again for real
             self.serial_port = serial.Serial(port=self.port)
@@ -90,7 +90,7 @@ class Arduino:
                 self.serial_port.write('\r')
                 time.sleep(timeout)
                 test = self.serial_port.read()
-                rospy.loginfo("Waking up serial port attempt " + str(attempts) + " of " + str(max_attempts))
+                rc_logger.info("Waking up serial port attempt " + str(attempts) + " of " + str(max_attempts))
 
             if test == '':
                 raise SerialException
@@ -105,21 +105,21 @@ class Arduino:
                 attempts += 1
                 self.serial_port.flushInput()
                 self.serial_port.flushOutput()
-                rospy.loginfo("Connecting...")
+                rc_logger.info("Connecting...")
                 time.sleep(timeout)
             try:
                 self.serial_port.inWaiting()
-                rospy.loginfo("Connected at " + str(self.baudrate))
-                rospy.loginfo("Arduino is ready!")
+                rc_logger.info("Connected at " + str(self.baudrate))
+                rc_logger.info("Arduino is ready!")
             except IOError:
                 raise SerialException
 
         except SerialException:
-            rospy.logerr("Serial Exception:")
-            rospy.logerr(sys.exc_info())
-            rospy.logerr("Traceback follows:")
+            rc_logger.error("Serial Exception:")
+            rc_logger.error(sys.exc_info())
+            rc_logger.error("Traceback follows:")
             traceback.print_exc(file=sys.stdout)
-            rospy.logerr("Cannot connect to Arduino!  Make sure it is plugged in to your computer.")
+            rc_logger.error("Cannot connect to Arduino!  Make sure it is plugged in to your computer.")
             return False
 
         return True
@@ -200,7 +200,7 @@ class Arduino:
 
     def print_debug_msg(self, msg):
         if self.debug:
-            rospy.logwarn(msg)
+            rc_logger.warn(msg)
     
     def update_pid(self, Kp, Kd, Ki, Ko):
         ''' Set the PID parameters on the Arduino
@@ -350,7 +350,7 @@ class Arduino:
 """ Basic test for connectivity """
 if __name__ == "__main__":
     if os.name == "posix":
-        portName = "/dev/ttyACM0"
+        portName = "/dev/ttyUSB0"
     else:
         portName = "COM43" # Windows style COM port.
         
