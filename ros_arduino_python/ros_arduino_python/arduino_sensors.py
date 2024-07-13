@@ -20,14 +20,19 @@
 """
 
 import rclpy
+from ros_arduino_python.miscellaneous import rc_logger
 from sensor_msgs.msg import Range, Imu
 from geometry_msgs.msg import Twist, Quaternion, Vector3
 from ros_arduino_python.arduino_driver import CommandErrorCode, CommandException
 from ros_arduino_python.diagnostics import DiagnosticsUpdater
-from ros_arduino_msgs.msg import *
-from ros_arduino_msgs.srv import *
+
+from ros_arduino_msgs.srv import DigitalSensorWrite, DigitalSensorRead
+from ros_arduino_msgs.msg import Digital
+
 from math import pow, radians
-from tf2.transformations import quaternion_from_euler
+import tf2_ros
+# https://github.com/DLu/tf_transformations/
+from tf_transformations import quaternion_from_euler
 import sys
 
 LOW = 0
@@ -46,9 +51,10 @@ class MessageType:
     IMU = 6
     
 class Sensor(object):
-    def __init__(self, device, name, pin=None, rate=0, direction="input", frame_id="base_link", **kwargs):
+    def __init__(self, device, name, node, pin=None, rate=0, direction="input", frame_id="base_link", **kwargs):
         self.device = device
         self.name = name
+        self.node = node
         self.pin = pin
         self.rate = rate
         self.direction = direction
@@ -63,9 +69,14 @@ class Sensor(object):
         # Track diagnostics for this component
         diagnotics_error_threshold = self.get_kwargs(kwargs, 'diagnotics_error_threshold', 10)
         diagnostics_rate = float(self.get_kwargs(kwargs, 'diagnostics_rate', 1))
-
+        print("sensor error_threshold:", diagnotics_error_threshold)
+        print("sensor rate:", diagnostics_rate)
         # The DiagnosticsUpdater class is defined in the diagnostics.py module
-        self.diagnostics = DiagnosticsUpdater(self, name + '_sensor', diagnotics_error_threshold, diagnostics_rate)    
+        self.diagnostics = DiagnosticsUpdater(self, 
+                                              name + '_sensor', 
+                                              node,
+                                              diagnotics_error_threshold, 
+                                              diagnostics_rate)    
 
         # Initialize the component's value
         self.value = None
@@ -79,8 +90,12 @@ class Sensor(object):
 
         # Intialize the next polling time stamp
         if self.rate != 0:
-            self.t_delta = rospy.Duration(1.0 / self.rate)
-            self.t_next = rospy.Time.now() + self.t_delta
+            now = node.get_clock().now()
+            self.t_delta = rclpy.duration.Duration(seconds=1.0 / self.rate)
+            self.t_next = now + self.t_delta
+            print("now:", now)
+            print("t_delta:", self.t_delta)
+            print("t_next:", self.t_next)
 
     def get_kwargs(self, kwargs, arg, default):
         try:
@@ -126,12 +141,12 @@ class Sensor(object):
             except CommandException as e:
                 # Update error counter
                 self.diagnostics.errors += 1
-                rospy.logerr('Command Exception: ' + CommandErrorCode.ErrorCodeStrings[e.code])
-                rospy.logerr("Invalid value read from sensor: " + str(self.name))
+                rc_logger.error('Command Exception: ' + CommandErrorCode.ErrorCodeStrings[e.code])
+                rc_logger.error("Invalid value read from sensor: " + str(self.name))
             except TypeError as e:
                 # Update error counter
                 self.diagnostics.errors += 1
-                rospy.logerr('Type Error: ' + e.message)
+                rc_logger.error('Type Error: ' + e.message)
 
             # Compute the next polling time stamp
             self.t_next = now + self.t_delta
@@ -208,26 +223,27 @@ class AnalogFloatSensor(AnalogSensor):
         
 class DigitalSensor(Sensor):
     def __init__(self, *args, **kwargs):
-        super(DigitalSensor, self).__init__(*args, **kwargs)
+        super().__init__(*args, **kwargs)
         
         self.message_type = MessageType.BOOL
         
         self.msg = Digital()
         self.msg.header.frame_id = self.frame_id
+        print("frame id:", self.frame_id)
 
         # Get the initial state
         self.value = self.read_value()
 
     def create_publisher(self):
-        self.pub = rospy.Publisher("~sensor/" + self.name, Digital, queue_size=5)
+        self.pub = self.node.create_publisher(Digital, "sensor/" + self.name, 5)
 
     def create_services(self):
         if self.direction == "output":
             self.device.digital_pin_mode(self.pin, OUTPUT)
-            rospy.Service('~' + self.name + '/write', DigitalSensorWrite, self.sensor_write_handler)
+            self.node.create_service(DigitalSensorWrite, self.name + '/write', self.sensor_write_handler)
         else:
             self.device.digital_pin_mode(self.pin, INPUT)
-            rospy.Service('~' + self.name + '/read', DigitalSensorRead, self.sensor_read_handler)
+            self.node.create_service(DigitalSensorRead, self.name + '/read', self.sensor_read_handler)
 
     def read_value(self):
         return self.device.digital_read(self.pin)
@@ -241,14 +257,16 @@ class DigitalSensor(Sensor):
         
         return self.device.digital_write(self.pin, self.value)
     
-    def sensor_read_handler(self, req=None):
+    def sensor_read_handler(self, req=None, res=None):
         self.value = self.read_value()
-        return DigitalSensorReadResponse(self.value)
+        res.value = self.value
+        return res
     
-    def sensor_write_handler(self, req):
+    def sensor_write_handler(self, req, res):
         self.write_value(req.value)
         self.value = req.value
-        return DigitalSensorWriteResponse()  
+        print("req write value:", req.value)
+        return res  
     
 class RangeSensor(Sensor):
     def __init__(self, *args, **kwargs):

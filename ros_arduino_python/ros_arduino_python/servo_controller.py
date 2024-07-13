@@ -20,12 +20,13 @@
     
     Borrowed heavily from Mike Feguson's ArbotiX servos_controller.py code.
 """
-import rospy
+import rclpy
 from std_msgs.msg import Float64
-from ros_arduino_msgs.srv import Relax, Enable, SetSpeed, SetSpeedResponse, RelaxResponse, EnableResponse
+from ros_arduino_msgs.srv import Relax, Enable, SetSpeed
 from ros_arduino_python.diagnostics import DiagnosticsUpdater
 from ros_arduino_python.arduino_driver import CommandErrorCode, CommandException
-from controllers import *
+from ros_arduino_python.controllers import Controller
+from ros_arduino_python.miscellaneous import rc_logger
 
 from math import radians, degrees, copysign
 
@@ -54,7 +55,11 @@ class Joint:
         diagnostics_rate = float(self.get_kwargs('diagnostics_rate', 1))
 
         # The DiagnosticsUpdater class is defined in the diagnostics.py module
-        self.diagnostics = DiagnosticsUpdater(self, name + '_joint', diagnotics_error_threshold, diagnostics_rate)
+        self.diagnostics = DiagnosticsUpdater(self, 
+                                              name + '_joint', 
+                                              None,
+                                              diagnotics_error_threshold, 
+                                              diagnostics_rate)
 
     def get_kwargs(self, arg, default):
         try:
@@ -119,9 +124,9 @@ class Servo(Joint):
         rospy.Subscriber('/' + name + '/command', Float64, self.command_cb)
 
         # Provide a number of services for controlling the servos
-        rospy.Service(name + '/relax', Relax, self.relax_cb)
-        rospy.Service(name + '/enable', Enable, self.enable_cb)
-        rospy.Service(name + '/set_speed', SetSpeed, self.set_speed_cb)
+        rospy.Service(Relax, name + '/relax', self.relax_cb)
+        rospy.Service(Enable, name + '/enable', self.enable_cb)
+        rospy.Service(SetSpeed, name + '/set_speed', self.set_speed_cb)
 
     def command_cb(self, msg):
         # Check limits
@@ -157,7 +162,7 @@ class Servo(Joint):
         target_speed = abs(target_speed)
 
         if target_speed > self.rated_speed_rad_per_sec:
-            rospy.logdebug("Target speed exceeds max servo speed. Using max.")
+            rc_logger.debug("Target speed exceeds max servo speed. Using max.")
             step_delay = 0
         else:
             # Catch division by zero and set to slowest speed possible

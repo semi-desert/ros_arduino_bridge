@@ -16,6 +16,7 @@
   <exec_depend>tf2</exec_depend>
   <exec_depend>ros_arduino_msgs</exec_depend>
   <exec_depend>python-serial</exec_depend>
+  <exec_depend>tf_transformations</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

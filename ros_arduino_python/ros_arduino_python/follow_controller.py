@@ -27,11 +27,15 @@
   ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-import rospy, actionlib
+import rclpy
+import rclpy.duration
+from rclpy.action import ActionServer
+from ros_arduino_python.miscellaneous import rc_logger
+from ros_arduino_python.controllers import Controller
 
-from control_msgs.msg import FollowJointTrajectoryAction
+from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectory
-from controllers import *
+from rclpy.node import Node
 
 class FollowController(Controller):
     """ A controller for joint chains, exposing a FollowJointTrajectory action. """
@@ -47,33 +51,38 @@ class FollowController(Controller):
 
         # Action server
         name = rospy.get_param('~controllers/' + name + '/action_name', 'follow_joint_trajectory')
-        self.server = actionlib.SimpleActionServer(name, FollowJointTrajectoryAction, execute_cb=self.execute_cb, auto_start=False)
+        #self.server = actionlib.SimpleActionServer(name, FollowJointTrajectoryAction, execute_cb=self.execute_cb, auto_start=False)
+        self.server = ActionServer(self, 
+                                   FollowJointTrajectory, 
+                                   name, 
+                                   self.execute_cb
+                                )
 
         # Good old trajectory
         rospy.Subscriber(self.name + '/command', JointTrajectory, self.command_cb)
         self.executing = False
 
-        rospy.loginfo("Started FollowController ("+self.name+"). Joints: " + str(self.joints) + " on C" + str(self.index))
+        rc_logger.info("Started FollowController ("+self.name+"). Joints: " + str(self.joints) + " on C" + str(self.index))
 
     def startup(self):
         self.server.start()
 
     def execute_cb(self, goal):
-        rospy.loginfo(self.name + ": Action goal recieved.")
+        rc_logger.info(self.name + ": Action goal recieved.")
         traj = goal.trajectory
         
         if set(self.joints) != set(traj.joint_names):
             for j in self.joints:
                 if j not in traj.joint_names:
                     msg = "Trajectory joint names does not match action controlled joints." + str(traj.joint_names)
-                    rospy.logerr(msg)
+                    rc_logger.error(msg)
                     self.server.set_aborted(text=msg)
                     return
-            rospy.logwarn("Extra joints in trajectory")
+            rc_logger.warn("Extra joints in trajectory")
 
         if not traj.points:
             msg = "Trajectory empy."
-            rospy.logerr(msg)
+            rc_logger.error(msg)
             self.server.set_aborted(text=msg)
             return
 
@@ -81,7 +90,7 @@ class FollowController(Controller):
             indexes = [traj.joint_names.index(joint) for joint in self.joints]
         except ValueError as val:
             msg = "Trajectory invalid."
-            rospy.logerr(msg)
+            rc_logger.error(msg)
             self.server.set_aborted(text=msg)
             return
 
@@ -90,25 +99,25 @@ class FollowController(Controller):
         else:
             self.server.set_aborted(text="Execution failed.")
 
-        rospy.loginfo(self.name + ": Done.")
+        rc_logger.info(self.name + ": Done.")
     
     def command_cb(self, msg):
         # Don't execute if executing an action
         if self.server.is_active():
-            rospy.loginfo(self.name + ": Received trajectory, but action is active")
+            rc_logger.info(self.name + ": Received trajectory, but action is active")
             return
         self.executing = True
         self.execute_trajectory(msg)
         self.executing = False    
 
     def execute_trajectory(self, traj):
-        rospy.loginfo("Executing trajectory")
-        rospy.logdebug(traj)
+        rc_logger.info("Executing trajectory")
+        rc_logger.debug(traj)
         # carry out trajectory
         try:
             indexes = [traj.joint_names.index(joint) for joint in self.joints]
         except ValueError as val:
-            rospy.logerr("Invalid joint in trajectory.")
+            rc_logger.error("Invalid joint in trajectory.")
             return False
 
         # Get starting timestamp, MoveIt uses 0, need to fill in
@@ -123,7 +132,7 @@ class FollowController(Controller):
         r = rospy.Rate(self.rate)
         last = [ self.device.joints[joint].position for joint in self.joints ]
         for point in traj.points:
-            while rospy.Time.now() + rospy.Duration(0.01) < start:
+            while rospy.Time.now() + rclpy.duration.Duration(seconds=0.01) < start:
                 rospy.sleep(0.01)
             desired = [ point.positions[k] for k in indexes ]
             endtime = start + point.time_from_start

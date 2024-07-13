@@ -19,7 +19,7 @@
     http://www.gnu.org/licenses/gpl.html
 """
 
-import rospy
+import rclpy
 import diagnostic_updater
 from diagnostic_msgs.msg import DiagnosticStatus, KeyValue
 
@@ -50,16 +50,17 @@ class DiagnosticsPublisher():
 class DiagnosticsUpdater():
     """ Class to return diagnostic status from a component. """
     
-    def __init__(self, component, name, error_threshold=10, rate=1.0, create_watchdog=False):
+    def __init__(self, component, name, node, error_threshold=10, rate=1.0, create_watchdog=False):
         self.component = component
-        
+        self.node = node
         self.name = name
             
         # Determines the OK, WARN and ERROR status flags
         self.error_threshold = error_threshold
         
         # Create a diagnostics updater
-        self.diag_updater = diagnostic_updater.Updater()
+        self.diag_updater = diagnostic_updater.Updater(self.node)
+        print("diag_updater created.")
         
         # Set the period from the rate
         self.diag_updater.period = 1.0 / rate
@@ -121,8 +122,8 @@ class DiagnosticsUpdater():
         else:
             stat.summary(DiagnosticStatus.OK, "Error Rate OK")
             
-        stat.add("Reads", self.total_reads)
-        stat.add("Error Rate", error_rate)
+        stat.add("Reads", str(self.total_reads))
+        stat.add("Error Rate", str(error_rate))
 
         return stat
     

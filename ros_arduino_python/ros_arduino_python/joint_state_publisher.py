@@ -47,7 +47,7 @@
     ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 """
 
-import rospy
+import rclpy
 from sensor_msgs.msg import JointState
 
 class JointStatePublisher:

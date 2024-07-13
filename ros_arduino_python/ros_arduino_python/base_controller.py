@@ -21,55 +21,76 @@
     http://www.gnu.org/licenses
 """
 
-import rospy
+import rclpy
 import sys, os
 
+from ros_arduino_python.miscellaneous import rc_logger
 from math import sin, cos, pi
 from geometry_msgs.msg import Quaternion, Twist, Pose
 from nav_msgs.msg import Odometry
-from tf.broadcaster import TransformBroadcaster
+from tf2_ros import TransformBroadcaster
 from ros_arduino_python.diagnostics import DiagnosticsUpdater
 
  
 """ Class to receive Twist commands and publish Odometry data """
 class BaseController:
-    def __init__(self, arduino, base_frame, name='base_controller'):
+    def __init__(self, node, arduino, base_frame, name='base_controller'):
+        self.node = node
         self.arduino = arduino
         self.name = name
         self.base_frame = base_frame
-        self.rate = float(rospy.get_param("~base_controller_rate", 10))
-        self.timeout = rospy.get_param("~base_controller_timeout", 1.0)
-        self.odom_linear_scale_correction = rospy.get_param("~odom_linear_scale_correction", 1.0)
-        self.odom_angular_scale_correction = rospy.get_param("~odom_angular_scale_correction", 1.0)
-        self.use_imu_heading = rospy.get_param("~use_imu_heading", False)
-        self.publish_odom_base_transform = rospy.get_param("~publish_odom_base_transform", True)
+
+        self.rate = float(self.node.get_parameter("base_controller_rate").get_parameter_value().integer_value)
+        self.timeout = self.node.get_parameter("base_controller_timeout").get_parameter_value().double_value
+        self.odom_linear_scale_correction = self.node.get_parameter("odom_linear_scale_correction").get_parameter_value().double_value
+        self.odom_angular_scale_correction = self.node.get_parameter("odom_angular_scale_correction").get_parameter_value().double_value
+        self.use_imu_heading = self.node.get_parameter("use_imu_heading").get_parameter_value().bool_value
+        self.publish_odom_base_transform = self.node.get_parameter("publish_odom_base_transform").get_parameter_value().bool_value
+
+        print("rate:", self.rate)
+        print("timeout:", self.timeout)
+        print("odom_linear_scale_correction:", self.odom_linear_scale_correction)
+        print("odom_angular_scale_correction:", self.odom_angular_scale_correction)
+        print("use_imu_heading:", self.use_imu_heading)
+        print("publish_odom_base_transform:", self.publish_odom_base_transform)
 
         self.stopped = False
         self.current_speed = Twist()
                  
         pid_params = dict()
-        pid_params['wheel_diameter'] = rospy.get_param("~wheel_diameter", "")
-        pid_params['wheel_track'] = rospy.get_param("~wheel_track", "")
-        pid_params['encoder_resolution'] = rospy.get_param("~encoder_resolution", "")
-        pid_params['gear_reduction'] = rospy.get_param("~gear_reduction", 1.0)
-        pid_params['Kp'] = rospy.get_param("~Kp", 20)
-        pid_params['Kd'] = rospy.get_param("~Kd", 12)
-        pid_params['Ki'] = rospy.get_param("~Ki", 0)
-        pid_params['Ko'] = rospy.get_param("~Ko", 50)
-        
-        self.accel_limit = rospy.get_param('~accel_limit', 1.0)
-        self.motors_reversed = rospy.get_param("~motors_reversed", False)
-        self.detect_enc_jump_error = rospy.get_param("~detect_enc_jump_error", False)
-        self.enc_jump_error_threshold = rospy.get_param("~enc_jump_error_threshold", 1000)
+        pid_params['wheel_diameter'] = self.node.get_parameter("wheel_diameter").get_parameter_value().double_value
+        pid_params['wheel_track'] = self.node.get_parameter("wheel_track").get_parameter_value().double_value
+        pid_params['encoder_resolution'] = self.node.get_parameter("encoder_resolution").get_parameter_value().integer_value
+        pid_params['gear_reduction'] = self.node.get_parameter("gear_reduction").get_parameter_value().double_value
+        pid_params['Kp'] = self.node.get_parameter("Kp").get_parameter_value().integer_value
+        pid_params['Kd'] = self.node.get_parameter("Kd").get_parameter_value().integer_value
+        pid_params['Ki'] = self.node.get_parameter("Ki").get_parameter_value().integer_value
+        pid_params['Ko'] = self.node.get_parameter("Ko").get_parameter_value().integer_value
+        print("pid_params:", pid_params)
+
+        self.accel_limit = self.node.get_parameter('accel_limit').get_parameter_value().double_value
+        self.motors_reversed = self.node.get_parameter("motors_reversed").get_parameter_value().bool_value
+        self.detect_enc_jump_error = self.node.get_parameter("detect_enc_jump_error").get_parameter_value().bool_value
+        self.enc_jump_error_threshold = self.node.get_parameter("enc_jump_error_threshold").get_parameter_value().integer_value
 
         # Default error threshold (percent) before getting a diagnostics warning
-        self.base_diagnotics_error_threshold = rospy.get_param("~base_diagnotics_error_threshold", 10)
+        self.base_diagnotics_error_threshold = self.node.get_parameter("base_diagnotics_error_threshold").get_parameter_value().integer_value
 
         # Diagnostics update rate
-        self.base_diagnotics_rate = rospy.get_param("~base_diagnotics_rate", 1.0)
+        self.base_diagnotics_rate = self.node.get_parameter("base_diagnotics_rate").get_parameter_value().double_value
+        print("accel_limit:", self.accel_limit)
+        print("motors_reversed:", self.motors_reversed)
+        print("detect_enc_jump_error:", self.detect_enc_jump_error)
+        print("enc_jump_error_threshold:", self.enc_jump_error_threshold)
+        print("base_diagnotics_error_threshold:", self.base_diagnotics_error_threshold)
+        print("base_diagnotics_rate:", self.base_diagnotics_rate)
 
         # Create the diagnostics updater for the Arduino device
-        self.diagnostics = DiagnosticsUpdater(self, self.name, self.base_diagnotics_error_threshold, self.base_diagnotics_rate)
+        self.diagnostics = DiagnosticsUpdater(self, 
+                                              self.name, 
+                                              node,
+                                              self.base_diagnotics_error_threshold, 
+                                              self.base_diagnotics_rate)
 
         # Set up PID parameters and check for missing values
         self.setup_pid(pid_params)
@@ -83,10 +104,13 @@ class BaseController:
         # Track how often we get a bad encoder count (if any)
         self.bad_encoder_count = 0
 
-        now = rospy.Time.now()    
+        now = self.node.get_clock().now()
         self.then = now # time for determining dx/dy
-        self.t_delta = rospy.Duration(1.0 / self.rate)
+        self.t_delta = rclpy.duration.Duration(seconds=1.0 / self.rate)
         self.t_next = now + self.t_delta
+        print("now:", now)
+        print("t_delta:", self.t_delta)
+        print("t_next:", self.t_next)
 
         # Internal data        
         self.enc_left = None            # encoder readings
@@ -101,17 +125,17 @@ class BaseController:
         self.last_cmd_vel = now
 
         # Subscriptions
-        rospy.Subscriber("cmd_vel", Twist, self.cmdVelCallback)
+        self.node.create_subscription(Twist, "cmd_vel", self.cmdVelCallback, 10)
 
         # Clear any old odometry info
         self.arduino.reset_encoders()
 
         # Set up the odometry broadcaster
-        self.odomPub = rospy.Publisher('odom', Odometry, queue_size=5)
-        self.odomBroadcaster = TransformBroadcaster()
+        self.odomPub = self.node.create_publisher(Odometry, 'odom', 5)
+        self.odomBroadcaster = TransformBroadcaster(self.node)
 
-        rospy.loginfo("Started base controller for a base of " + str(self.wheel_track) + "m wide with " + str(self.encoder_resolution) + " ticks per rev")
-        rospy.loginfo("Publishing odometry data at: " + str(self.rate) + " Hz using " + str(self.base_frame) + " as base frame")
+        rc_logger.info("Started base controller for a base of " + str(self.wheel_track) + "m wide with " + str(self.encoder_resolution) + " ticks per rev")
+        rc_logger.info("Publishing odometry data at: " + str(self.rate) + " Hz using " + str(self.base_frame) + " as base frame")
         
     def setup_pid(self, pid_params):
         # Check to see if any PID parameters are missing
@@ -135,12 +159,13 @@ class BaseController:
         self.Ko = pid_params['Ko']
         
         if self.arduino.update_pid(self.Kp, self.Kd, self.Ki, self.Ko):
-            rospy.loginfo("PID parameters update to: Kp=%d, Kd=%d, Ki=%d, Ko=%d" %(self.Kp, self.Kd, self.Ki, self.Ko))
+            rc_logger.info("PID parameters update to: Kp=%d, Kd=%d, Ki=%d, Ko=%d" %(self.Kp, self.Kd, self.Ki, self.Ko))
         else:
-            rospy.logerr("Updating PID parameters failed!")
+            rc_logger.error("Updating PID parameters failed!")
 
     def poll(self):
-        now = rospy.Time.now()
+        #now = rospy.Time.now()
+        now = self.node.get_clock().now()
         if now > self.t_next:
             # Read the encoders
             try:
@@ -151,7 +176,7 @@ class BaseController:
             except:
                 self.diagnostics.errors += 1
                 self.bad_encoder_count += 1
-                rospy.logerr("Encoder exception count: " + str(self.bad_encoder_count))
+                rc_logger.error("Encoder exception count: " + str(self.bad_encoder_count))
                 return
 
             # Check for jumps in encoder readings
@@ -162,14 +187,14 @@ class BaseController:
                     if abs(right_enc - self.enc_right) > self.enc_jump_error_threshold:
                         self.diagnostics.errors += 1
                         self.bad_encoder_count += 1
-                        rospy.logerr("RIGHT encoder jump error from %d to %d", self.enc_right, right_enc)
+                        rc_logger.error("RIGHT encoder jump error from %d to %d", self.enc_right, right_enc)
                         self.enc_right = right_enc
                         enc_jump_error = True
 
                     if abs(left_enc - self.enc_left) > self.enc_jump_error_threshold:
                         self.diagnostics.errors += 1
                         self.bad_encoder_count += 1
-                        rospy.logerr("LEFT encoder jump error from %d to %d", self.enc_left, left_enc)
+                        rc_logger.error("LEFT encoder jump error from %d to %d", self.enc_left, left_enc)
                         self.enc_left = left_enc
                         enc_jump_error = True
 
@@ -218,7 +243,8 @@ class BaseController:
                 self.odomBroadcaster.sendTransform(
                     (self.x, self.y, 0), 
                     (quaternion.x, quaternion.y, quaternion.z, quaternion.w),
-                    rospy.Time.now(),
+                    #rospy.Time.now(),
+                    self.node.get_clock().now(),
                     self.base_frame,
                     "odom"
                     )
@@ -261,7 +287,7 @@ class BaseController:
 
             self.odomPub.publish(odom)
             
-            if now > (self.last_cmd_vel + rospy.Duration(self.timeout)):
+            if now > (self.last_cmd_vel + rclpy.duration.Duration(seconds=self.timeout)):
                 self.v_des_left = 0
                 self.v_des_right = 0
                 
@@ -295,7 +321,8 @@ class BaseController:
             
     def cmdVelCallback(self, req):
         # Handle velocity-based movement requests
-        self.last_cmd_vel = rospy.Time.now()
+        #self.last_cmd_vel = rospy.Time.now()
+        self.last_cmd_vel = self.node.get_clock().now()
         
         x = req.linear.x         # m/s
         th = req.angular.z       # rad/s

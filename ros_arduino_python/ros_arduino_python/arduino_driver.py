@@ -27,7 +27,9 @@ from math import pi as PI
 import os, time, sys, traceback
 from serial.serialutil import SerialException, SerialTimeoutException
 import serial
+import rclpy.parameter
 from ros_arduino_python.miscellaneous import rc_logger
+from ros_arduino_python.miscellaneous import to_bytes, to_str
 
 # Possible errors when reading/writing to the Arduino
 class CommandErrorCode:
@@ -74,41 +76,47 @@ class Arduino:
 
             # Now open the port with the real settings.  An initial timeout of at least 1.0 seconds seems to work best
             self.serial_port = serial.Serial(port=self.port, baudrate=self.baudrate, timeout=max(1.0, self.timeout))
+            print("serial open?", self.serial_port.is_open)
 
             # It can take time for the serial port to wake up
             max_attempts = 10
             attempts = 0
             timeout = self.timeout
 
-            self.serial_port.write('\r')
+            self.serial_port.write(b'\r')
             time.sleep(timeout)
-            test = self.serial_port.read()
-
+            test = self.serial_port.readline()
+            print("init test serial read:", test)
+            
             #  Wake up the serial port
-            while attempts < max_attempts and test == '':
+            while attempts < max_attempts and test == b'':
                 attempts += 1
-                self.serial_port.write('\r')
+                self.serial_port.write(b'\r')
                 time.sleep(timeout)
-                test = self.serial_port.read()
+                test = self.serial_port.readline()
                 rc_logger.info("Waking up serial port attempt " + str(attempts) + " of " + str(max_attempts))
 
-            if test == '':
+            print("while test serial read:", test)
+            if test == b'':
                 raise SerialException
 
             # Reset the timeout to the user specified timeout
-            self.serial_port.setTimeout(self.timeout)
-            self.serial_port.setWriteTimeout(self.timeout)
-
+            self.serial_port.timeout = self.timeout
+            self.serial_port.write_timeout = self.timeout
+            print("timeout set. timeout:", timeout)
+            print("get band:", self.get_baud())
             # Test the connection by reading the baudrate
             attempts = 0
             while self.get_baud() != self.baudrate and attempts < max_attempts:
                 attempts += 1
-                self.serial_port.flushInput()
-                self.serial_port.flushOutput()
+                #self.serial_port.flushInput()
+                #self.serial_port.flushOutput()
+                self.serial_port.flush()
                 rc_logger.info("Connecting...")
                 time.sleep(timeout)
             try:
-                self.serial_port.inWaiting()
+                #self.serial_port.inWaiting()
+                print("in waiting:", self.serial_port.in_waiting)
                 rc_logger.info("Connected at " + str(self.baudrate))
                 rc_logger.info("Arduino is ready!")
             except IOError:
@@ -150,10 +158,19 @@ class Arduino:
 
         try:
             start = time.time()
-            self.serial_port.flushInput()
-            self.serial_port.flushOutput()
-            self.serial_port.write(cmd + '\r')
-            value = self.serial_port.readline().strip('\n').strip('\r')
+            #self.serial_port.flushInput()
+            #self.serial_port.flushOutput()
+            self.serial_port.flush()
+            execc = to_bytes(cmd) + b'\r'
+            print("---> command exec:", execc)
+
+            self.serial_port.write(execc)
+            value = self.serial_port.readline()
+            print("value:", value)
+            value = value.strip(b'\n').strip(b'\r')
+            value = to_str(value)
+
+            print("strip value:", value)
         except SerialException:
             self.print_debug_msg("Command " + str(cmd) + " failed with Serial Exception")
             error = CommandErrorCode.SERIALEXCEPTION
