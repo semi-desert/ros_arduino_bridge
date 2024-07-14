@@ -162,15 +162,15 @@ class Arduino:
             #self.serial_port.flushOutput()
             self.serial_port.flush()
             execc = to_bytes(cmd) + b'\r'
-            print("---> command exec:", execc)
+            #print("---> command exec:", execc)
 
             self.serial_port.write(execc)
             value = self.serial_port.readline()
-            print("value:", value)
+            #print("value:", value)
             value = value.strip(b'\n').strip(b'\r')
             value = to_str(value)
 
-            print("strip value:", value)
+            #print("strip value:", value)
         except SerialException:
             self.print_debug_msg("Command " + str(cmd) + " failed with Serial Exception")
             error = CommandErrorCode.SERIALEXCEPTION

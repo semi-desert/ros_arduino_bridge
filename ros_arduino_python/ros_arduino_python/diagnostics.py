@@ -50,16 +50,15 @@ class DiagnosticsPublisher():
 class DiagnosticsUpdater():
     """ Class to return diagnostic status from a component. """
     
-    def __init__(self, component, name, node, error_threshold=10, rate=1.0, create_watchdog=False):
+    def __init__(self, component, name, error_threshold=10, rate=1.0, create_watchdog=False):
         self.component = component
-        self.node = node
         self.name = name
             
         # Determines the OK, WARN and ERROR status flags
         self.error_threshold = error_threshold
         
         # Create a diagnostics updater
-        self.diag_updater = diagnostic_updater.Updater(self.node)
+        self.diag_updater = diagnostic_updater.Updater(component)
         print("diag_updater created.")
         
         # Set the period from the rate
@@ -134,7 +133,7 @@ class DiagnosticsUpdater():
         else:
             stat.summary(DiagnosticStatus.OK, "Alive")
 
-        stat.add("Watchdog", self.watchdog)
+        stat.add("Watchdog", str(self.watchdog))
         return stat
 
             

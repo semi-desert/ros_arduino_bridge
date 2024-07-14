@@ -48,24 +48,29 @@
 """
 
 import rclpy
+import rclpy.duration
+from rclpy.node import Node
 from sensor_msgs.msg import JointState
 
-class JointStatePublisher:
+class JointStatePublisher(Node):
     """ Class to publish joint_states message. """
 
     def __init__(self):
-        self.rate = rospy.get_param("~joint_update_rate", 10.0)
-        self.t_delta = rospy.Duration(1.0 / self.rate)
-        self.t_next = rospy.Time.now() + self.t_delta
+        name = "node_jsp"
+        super().__init__(name)
+        print("joint_state_publisher node init, name:", name)
+        self.rate = self.get_parameter("joint_update_rate").get_parameter_value().double_value  # default 10.0
+        self.t_delta = rclpy.duration.Duration(seconds=1.0 / self.rate)
+        self.t_next = self.get_clock().now() + self.t_delta
 
         # Publisher
-        self.pub = rospy.Publisher('joint_states', JointState, queue_size=5)
+        self.pub = self.create_publisher(JointState, 'joint_states', 5)
 
     def poll(self, joints):
         """ Publish joint states. """
-        if rospy.Time.now() > self.t_next:   
+        if self.get_clock().now() > self.t_next:   
             msg = JointState()
-            msg.header.stamp = rospy.Time.now()
+            msg.header.stamp = self.get_clock().now().to_msg()
             msg.name = list()
             msg.position = list()
             msg.velocity = list()
@@ -77,4 +82,4 @@ class JointStatePublisher:
                 
             self.pub.publish(msg)
             
-            self.t_next = rospy.Time.now() + self.t_delta
+            self.t_next = self.get_clock().now() + self.t_delta

@@ -22,30 +22,35 @@
 """
 
 import rclpy
+from rclpy.node import Node
 import sys, os
 
-from ros_arduino_python.miscellaneous import rc_logger
+from ros_arduino_python.miscellaneous import declare_params
 from math import sin, cos, pi
 from geometry_msgs.msg import Quaternion, Twist, Pose
 from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
+from geometry_msgs.msg import TransformStamped
 from ros_arduino_python.diagnostics import DiagnosticsUpdater
 
  
 """ Class to receive Twist commands and publish Odometry data """
-class BaseController:
-    def __init__(self, node, arduino, base_frame, name='base_controller'):
-        self.node = node
+class BaseController(Node):
+    def __init__(self, arduino, base_frame, name='base_controller'):
+        super().__init__(name)
+        print("base_controller node init, name:", name)
+        declare_params(self)
+
         self.arduino = arduino
         self.name = name
         self.base_frame = base_frame
 
-        self.rate = float(self.node.get_parameter("base_controller_rate").get_parameter_value().integer_value)
-        self.timeout = self.node.get_parameter("base_controller_timeout").get_parameter_value().double_value
-        self.odom_linear_scale_correction = self.node.get_parameter("odom_linear_scale_correction").get_parameter_value().double_value
-        self.odom_angular_scale_correction = self.node.get_parameter("odom_angular_scale_correction").get_parameter_value().double_value
-        self.use_imu_heading = self.node.get_parameter("use_imu_heading").get_parameter_value().bool_value
-        self.publish_odom_base_transform = self.node.get_parameter("publish_odom_base_transform").get_parameter_value().bool_value
+        self.rate = float(self.get_parameter("base_controller_rate").get_parameter_value().integer_value)
+        self.timeout = self.get_parameter("base_controller_timeout").get_parameter_value().double_value
+        self.odom_linear_scale_correction = self.get_parameter("odom_linear_scale_correction").get_parameter_value().double_value
+        self.odom_angular_scale_correction = self.get_parameter("odom_angular_scale_correction").get_parameter_value().double_value
+        self.use_imu_heading = self.get_parameter("use_imu_heading").get_parameter_value().bool_value
+        self.publish_odom_base_transform = self.get_parameter("publish_odom_base_transform").get_parameter_value().bool_value
 
         print("rate:", self.rate)
         print("timeout:", self.timeout)
@@ -58,26 +63,26 @@ class BaseController:
         self.current_speed = Twist()
                  
         pid_params = dict()
-        pid_params['wheel_diameter'] = self.node.get_parameter("wheel_diameter").get_parameter_value().double_value
-        pid_params['wheel_track'] = self.node.get_parameter("wheel_track").get_parameter_value().double_value
-        pid_params['encoder_resolution'] = self.node.get_parameter("encoder_resolution").get_parameter_value().integer_value
-        pid_params['gear_reduction'] = self.node.get_parameter("gear_reduction").get_parameter_value().double_value
-        pid_params['Kp'] = self.node.get_parameter("Kp").get_parameter_value().integer_value
-        pid_params['Kd'] = self.node.get_parameter("Kd").get_parameter_value().integer_value
-        pid_params['Ki'] = self.node.get_parameter("Ki").get_parameter_value().integer_value
-        pid_params['Ko'] = self.node.get_parameter("Ko").get_parameter_value().integer_value
+        pid_params['wheel_diameter'] = self.get_parameter("wheel_diameter").get_parameter_value().double_value
+        pid_params['wheel_track'] = self.get_parameter("wheel_track").get_parameter_value().double_value
+        pid_params['encoder_resolution'] = self.get_parameter("encoder_resolution").get_parameter_value().integer_value
+        pid_params['gear_reduction'] = self.get_parameter("gear_reduction").get_parameter_value().double_value
+        pid_params['Kp'] = self.get_parameter("Kp").get_parameter_value().integer_value
+        pid_params['Kd'] = self.get_parameter("Kd").get_parameter_value().integer_value
+        pid_params['Ki'] = self.get_parameter("Ki").get_parameter_value().integer_value
+        pid_params['Ko'] = self.get_parameter("Ko").get_parameter_value().integer_value
         print("pid_params:", pid_params)
 
-        self.accel_limit = self.node.get_parameter('accel_limit').get_parameter_value().double_value
-        self.motors_reversed = self.node.get_parameter("motors_reversed").get_parameter_value().bool_value
-        self.detect_enc_jump_error = self.node.get_parameter("detect_enc_jump_error").get_parameter_value().bool_value
-        self.enc_jump_error_threshold = self.node.get_parameter("enc_jump_error_threshold").get_parameter_value().integer_value
+        self.accel_limit = self.get_parameter('accel_limit').get_parameter_value().double_value
+        self.motors_reversed = self.get_parameter("motors_reversed").get_parameter_value().bool_value
+        self.detect_enc_jump_error = self.get_parameter("detect_enc_jump_error").get_parameter_value().bool_value
+        self.enc_jump_error_threshold = self.get_parameter("enc_jump_error_threshold").get_parameter_value().integer_value
 
         # Default error threshold (percent) before getting a diagnostics warning
-        self.base_diagnotics_error_threshold = self.node.get_parameter("base_diagnotics_error_threshold").get_parameter_value().integer_value
+        self.base_diagnotics_error_threshold = self.get_parameter("base_diagnotics_error_threshold").get_parameter_value().integer_value
 
         # Diagnostics update rate
-        self.base_diagnotics_rate = self.node.get_parameter("base_diagnotics_rate").get_parameter_value().double_value
+        self.base_diagnotics_rate = self.get_parameter("base_diagnotics_rate").get_parameter_value().double_value
         print("accel_limit:", self.accel_limit)
         print("motors_reversed:", self.motors_reversed)
         print("detect_enc_jump_error:", self.detect_enc_jump_error)
@@ -87,8 +92,7 @@ class BaseController:
 
         # Create the diagnostics updater for the Arduino device
         self.diagnostics = DiagnosticsUpdater(self, 
-                                              self.name, 
-                                              node,
+                                              self.name,
                                               self.base_diagnotics_error_threshold, 
                                               self.base_diagnotics_rate)
 
@@ -104,7 +108,7 @@ class BaseController:
         # Track how often we get a bad encoder count (if any)
         self.bad_encoder_count = 0
 
-        now = self.node.get_clock().now()
+        now = self.get_clock().now()
         self.then = now # time for determining dx/dy
         self.t_delta = rclpy.duration.Duration(seconds=1.0 / self.rate)
         self.t_next = now + self.t_delta
@@ -115,27 +119,27 @@ class BaseController:
         # Internal data        
         self.enc_left = None            # encoder readings
         self.enc_right = None
-        self.x = 0                      # position in xy plane
-        self.y = 0
-        self.th = 0                     # rotation in radians
-        self.v_left = 0
-        self.v_right = 0
-        self.v_des_left = 0             # cmd_vel setpoint
-        self.v_des_right = 0
+        self.x = 0.0                      # position in xy plane
+        self.y = 0.0
+        self.th = 0.0                     # rotation in radians
+        self.v_left = 0.0
+        self.v_right = 0.0
+        self.v_des_left = 0.0             # cmd_vel setpoint
+        self.v_des_right = 0.0
         self.last_cmd_vel = now
 
         # Subscriptions
-        self.node.create_subscription(Twist, "cmd_vel", self.cmdVelCallback, 10)
+        self.create_subscription(Twist, "cmd_vel", self.cmdVelCallback, 10)
 
         # Clear any old odometry info
         self.arduino.reset_encoders()
 
         # Set up the odometry broadcaster
-        self.odomPub = self.node.create_publisher(Odometry, 'odom', 5)
-        self.odomBroadcaster = TransformBroadcaster(self.node)
+        self.odomPub = self.create_publisher(Odometry, 'odom', 5)
+        self.odomBroadcaster = TransformBroadcaster(self)
 
-        rc_logger.info("Started base controller for a base of " + str(self.wheel_track) + "m wide with " + str(self.encoder_resolution) + " ticks per rev")
-        rc_logger.info("Publishing odometry data at: " + str(self.rate) + " Hz using " + str(self.base_frame) + " as base frame")
+        self.get_logger().info("Started base controller for a base of " + str(self.wheel_track) + "m wide with " + str(self.encoder_resolution) + " ticks per rev")
+        self.get_logger().info("Publishing odometry data at: " + str(self.rate) + " Hz using " + str(self.base_frame) + " as base frame")
         
     def setup_pid(self, pid_params):
         # Check to see if any PID parameters are missing
@@ -159,13 +163,13 @@ class BaseController:
         self.Ko = pid_params['Ko']
         
         if self.arduino.update_pid(self.Kp, self.Kd, self.Ki, self.Ko):
-            rc_logger.info("PID parameters update to: Kp=%d, Kd=%d, Ki=%d, Ko=%d" %(self.Kp, self.Kd, self.Ki, self.Ko))
+            self.get_logger().info("PID parameters update to: Kp=%d, Kd=%d, Ki=%d, Ko=%d" %(self.Kp, self.Kd, self.Ki, self.Ko))
         else:
-            rc_logger.error("Updating PID parameters failed!")
+            self.get_logger().error("Updating PID parameters failed!")
 
     def poll(self):
         #now = rospy.Time.now()
-        now = self.node.get_clock().now()
+        now = self.get_clock().now()
         if now > self.t_next:
             # Read the encoders
             try:
@@ -176,7 +180,7 @@ class BaseController:
             except:
                 self.diagnostics.errors += 1
                 self.bad_encoder_count += 1
-                rc_logger.error("Encoder exception count: " + str(self.bad_encoder_count))
+                self.get_logger().error("Encoder exception count: " + str(self.bad_encoder_count))
                 return
 
             # Check for jumps in encoder readings
@@ -187,14 +191,14 @@ class BaseController:
                     if abs(right_enc - self.enc_right) > self.enc_jump_error_threshold:
                         self.diagnostics.errors += 1
                         self.bad_encoder_count += 1
-                        rc_logger.error("RIGHT encoder jump error from %d to %d", self.enc_right, right_enc)
+                        self.get_logger().error("RIGHT encoder jump error from %d to %d", self.enc_right, right_enc)
                         self.enc_right = right_enc
                         enc_jump_error = True
 
                     if abs(left_enc - self.enc_left) > self.enc_jump_error_threshold:
                         self.diagnostics.errors += 1
                         self.bad_encoder_count += 1
-                        rc_logger.error("LEFT encoder jump error from %d to %d", self.enc_left, left_enc)
+                        self.get_logger().error("LEFT encoder jump error from %d to %d", self.enc_left, left_enc)
                         self.enc_left = left_enc
                         enc_jump_error = True
 
@@ -205,7 +209,8 @@ class BaseController:
 
             dt = now - self.then
             self.then = now
-            dt = dt.to_sec()
+            dt = dt.nanoseconds / 1e9  # to seconds
+            #print("base controller dt:", dt)
             
             # Calculate odometry
             if self.enc_left == None:
@@ -237,28 +242,39 @@ class BaseController:
             quaternion.y = 0.0
             quaternion.z = sin(self.th / 2.0)
             quaternion.w = cos(self.th / 2.0)
-    
+
+            transform_stamped = TransformStamped()
+            transform_stamped.header.stamp = self.get_clock().now().to_msg()
+            transform_stamped.header.frame_id = "odom"
+            transform_stamped.child_frame_id = self.base_frame
+            transform_stamped.transform.translation.x = self.x
+            transform_stamped.transform.translation.y = self.y
+            transform_stamped.transform.translation.z = 0.0
+            transform_stamped.transform.rotation.x = quaternion.x
+            transform_stamped.transform.rotation.y = quaternion.y
+            transform_stamped.transform.rotation.z = quaternion.z
+            transform_stamped.transform.rotation.w = quaternion.w
             # Create the odometry transform frame broadcaster.
             if self.publish_odom_base_transform:
                 self.odomBroadcaster.sendTransform(
-                    (self.x, self.y, 0), 
-                    (quaternion.x, quaternion.y, quaternion.z, quaternion.w),
-                    #rospy.Time.now(),
-                    self.node.get_clock().now(),
-                    self.base_frame,
-                    "odom"
+                        # (self.x, self.y, 0), 
+                        # (quaternion.x, quaternion.y, quaternion.z, quaternion.w),
+                        # self.get_clock().now(),
+                        # self.base_frame,
+                        # "odom"
+                        transform_stamped
                     )
     
             odom = Odometry()
             odom.header.frame_id = "odom"
             odom.child_frame_id = self.base_frame
-            odom.header.stamp = now
+            odom.header.stamp = now.to_msg()
             odom.pose.pose.position.x = self.x
             odom.pose.pose.position.y = self.y
-            odom.pose.pose.position.z = 0
+            odom.pose.pose.position.z = 0.0
             odom.pose.pose.orientation = quaternion
             odom.twist.twist.linear.x = vxy
-            odom.twist.twist.linear.y = 0
+            odom.twist.twist.linear.y = 0.0
             odom.twist.twist.angular.z = vth
             
             self.current_speed = Twist()
@@ -322,11 +338,11 @@ class BaseController:
     def cmdVelCallback(self, req):
         # Handle velocity-based movement requests
         #self.last_cmd_vel = rospy.Time.now()
-        self.last_cmd_vel = self.node.get_clock().now()
+        self.last_cmd_vel = self.get_clock().now()
         
         x = req.linear.x         # m/s
         th = req.angular.z       # rad/s
-
+        print("base controller cmd vel x:", x, "th:", th)
         if x == 0:
             # Turn in place
             right = th * self.wheel_track  * self.gear_reduction / 2.0

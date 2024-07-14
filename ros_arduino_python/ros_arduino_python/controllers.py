@@ -29,7 +29,8 @@
 ## @file controllers.py Base class and support functions for a controllers.
 
 ## @brief Controllers interact with ArbotiX hardware.
-class Controller:
+from rclpy.node import Node
+class Controller(Node):
 
     ## @brief Constructs a Controller instance.
     ##
@@ -37,6 +38,8 @@ class Controller:
     ## 
     ## @param name The controller name.
     def __init__(self, device, name):
+        super().__init__(name)
+        print("controller node init, name:", name)
         self.name = name
         self.device = device
         self.pause = False

@@ -36,21 +36,25 @@ from ros_arduino_python.controllers import Controller
 from control_msgs.action import FollowJointTrajectory
 from trajectory_msgs.msg import JointTrajectory
 from rclpy.node import Node
+from diagnostic_msgs.msg import DiagnosticStatus, KeyValue
+
 
 class FollowController(Controller):
     """ A controller for joint chains, exposing a FollowJointTrajectory action. """
 
     def __init__(self, device, name):
-        Controller.__init__(self, device, name)
+        #Controller.__init__(self, device, name)
+        super().__init__(device, name)
+        
         # Parameters: rates and joints
-        self.rate = rospy.get_param('~controllers/' + name + '/rate', 50.0)
-        self.joints = rospy.get_param('~controllers/' + name + '/joints')
-        self.index = rospy.get_param('~controllers/'+ name + '/index', len(device.controllers))
+        self.rate = self.get_parameter('controllers/' + name + '/rate').get_parameter_value().double_value  # default 50.0
+        self.joints = self.get_parameter('controllers/' + name + '/joints').get_parameter_value()
+        self.index = self.get_parameter('controllers/'+ name + '/index', ).get_parameter_value().integer_value  # default len(device.controllers)
         for joint in self.joints:
             self.device.joints[joint].controller = self
 
         # Action server
-        name = rospy.get_param('~controllers/' + name + '/action_name', 'follow_joint_trajectory')
+        name = self.get_parameter('controllers/' + name + '/action_name').get_parameter_value().string_value  # default follow_joint_trajectory
         #self.server = actionlib.SimpleActionServer(name, FollowJointTrajectoryAction, execute_cb=self.execute_cb, auto_start=False)
         self.server = ActionServer(self, 
                                    FollowJointTrajectory, 
@@ -59,30 +63,30 @@ class FollowController(Controller):
                                 )
 
         # Good old trajectory
-        rospy.Subscriber(self.name + '/command', JointTrajectory, self.command_cb)
+        self.create_subscription(JointTrajectory, self.name + '/command', self.command_cb, 10)
         self.executing = False
 
-        rc_logger.info("Started FollowController ("+self.name+"). Joints: " + str(self.joints) + " on C" + str(self.index))
+        self.get_logger.info("Started FollowController ("+self.name+"). Joints: " + str(self.joints) + " on C" + str(self.index))
 
     def startup(self):
         self.server.start()
 
     def execute_cb(self, goal):
-        rc_logger.info(self.name + ": Action goal recieved.")
+        self.get_logger().info(self.name + ": Action goal recieved.")
         traj = goal.trajectory
         
         if set(self.joints) != set(traj.joint_names):
             for j in self.joints:
                 if j not in traj.joint_names:
                     msg = "Trajectory joint names does not match action controlled joints." + str(traj.joint_names)
-                    rc_logger.error(msg)
+                    self.get_logger().error(msg)
                     self.server.set_aborted(text=msg)
                     return
-            rc_logger.warn("Extra joints in trajectory")
+            self.get_logger().warn("Extra joints in trajectory")
 
         if not traj.points:
             msg = "Trajectory empy."
-            rc_logger.error(msg)
+            self.get_logger().error(msg)
             self.server.set_aborted(text=msg)
             return
 
@@ -90,7 +94,7 @@ class FollowController(Controller):
             indexes = [traj.joint_names.index(joint) for joint in self.joints]
         except ValueError as val:
             msg = "Trajectory invalid."
-            rc_logger.error(msg)
+            self.get_logger().error(msg)
             self.server.set_aborted(text=msg)
             return
 
@@ -99,47 +103,47 @@ class FollowController(Controller):
         else:
             self.server.set_aborted(text="Execution failed.")
 
-        rc_logger.info(self.name + ": Done.")
+        self.get_logger().info(self.name + ": Done.")
     
     def command_cb(self, msg):
         # Don't execute if executing an action
         if self.server.is_active():
-            rc_logger.info(self.name + ": Received trajectory, but action is active")
+            self.get_logger().info(self.name + ": Received trajectory, but action is active")
             return
         self.executing = True
         self.execute_trajectory(msg)
         self.executing = False    
 
     def execute_trajectory(self, traj):
-        rc_logger.info("Executing trajectory")
-        rc_logger.debug(traj)
+        self.get_logger().info("Executing trajectory")
+        self.get_logger().debug(traj)
         # carry out trajectory
         try:
             indexes = [traj.joint_names.index(joint) for joint in self.joints]
         except ValueError as val:
-            rc_logger.error("Invalid joint in trajectory.")
+            self.get_logger().error("Invalid joint in trajectory.")
             return False
 
         # Get starting timestamp, MoveIt uses 0, need to fill in
         start = traj.header.stamp
         if start.secs == 0 and start.nsecs == 0:
-            start = rospy.Time.now()
+            start = self.get_clock().now()
         
         # Set the start time for each joint
         for i in range(len(self.joints)):
             self.device.joints[self.joints[i]].time_move_started = start
 
-        r = rospy.Rate(self.rate)
+        r = self.create_rate(self.rate)
         last = [ self.device.joints[joint].position for joint in self.joints ]
         for point in traj.points:
-            while rospy.Time.now() + rclpy.duration.Duration(seconds=0.01) < start:
-                rospy.sleep(0.01)
+            while self.get_clock().now() + rclpy.duration.Duration(seconds=0.01) < start:
+                r.sleep()
             desired = [ point.positions[k] for k in indexes ]
             endtime = start + point.time_from_start
-            while rospy.Time.now() + rospy.Duration(0.01) < endtime:
+            while self.get_clock().now() + rclpy.duration.Duration(seconds=0.01) < endtime:
                 err = [ (d-c) for d,c in zip(desired,last) ]
-                velocity = [ abs(x / (self.rate * (endtime - rospy.Time.now()).to_sec())) for x in err ]
-                rospy.logdebug(err)
+                velocity = [ abs(x / (self.rate * (endtime - self.get_clock().now()).to_sec())) for x in err ]
+                self.get_logger().debug(err)
                 for i in range(len(self.joints)):
                     if err[i] > 0.001 or err[i] < -0.001:
                         cmd = err[i] 
@@ -149,7 +153,7 @@ class FollowController(Controller):
                         elif cmd < -top:
                             cmd = -top
                         last[i] += cmd
-                        self.device.joints[self.joints[i]].time_move_started = rospy.Time.now()
+                        self.device.joints[self.joints[i]].time_move_started = self.get_clock().now()
                         self.device.joints[self.joints[i]].in_trajectory = True
                         self.device.joints[self.joints[i]].is_moving = True
                         self.device.joints[self.joints[i]].desired = last[i]

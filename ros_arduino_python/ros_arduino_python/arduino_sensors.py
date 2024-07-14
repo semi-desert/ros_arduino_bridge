@@ -20,6 +20,7 @@
 """
 
 import rclpy
+from rclpy.node import Node
 from ros_arduino_python.miscellaneous import rc_logger
 from sensor_msgs.msg import Range, Imu
 from geometry_msgs.msg import Twist, Quaternion, Vector3
@@ -50,11 +51,12 @@ class MessageType:
     BOOL = 5
     IMU = 6
     
-class Sensor(object):
-    def __init__(self, device, name, node, pin=None, rate=0, direction="input", frame_id="base_link", **kwargs):
+class Sensor(Node):
+    def __init__(self, device, name, pin=None, rate=0, direction="input", frame_id="base_link", **kwargs):
+        Node.__init__(self, name)
+        print("sensor node init, name:", name)
         self.device = device
         self.name = name
-        self.node = node
         self.pin = pin
         self.rate = rate
         self.direction = direction
@@ -74,7 +76,6 @@ class Sensor(object):
         # The DiagnosticsUpdater class is defined in the diagnostics.py module
         self.diagnostics = DiagnosticsUpdater(self, 
                                               name + '_sensor', 
-                                              node,
                                               diagnotics_error_threshold, 
                                               diagnostics_rate)    
 
@@ -83,14 +84,14 @@ class Sensor(object):
 
         # Create the default publisher
         if self.rate != 0:
-            self.create_publisher()
+            self.custom_create_publisher()
 
         # Create any appropriate services
-        self.create_services()
+        self.custom_create_services()
 
         # Intialize the next polling time stamp
         if self.rate != 0:
-            now = node.get_clock().now()
+            now = self.get_clock().now()
             self.t_delta = rclpy.duration.Duration(seconds=1.0 / self.rate)
             self.t_next = now + self.t_delta
             print("now:", now)
@@ -103,11 +104,11 @@ class Sensor(object):
         except:
             return default
 
-    def create_publisher(self):
+    def custom_create_publisher(self):
         # Override per sensor type
         pass
 
-    def create_services(self):
+    def custom_create_services(self):
         # Override per sensor type
         pass
 
@@ -125,11 +126,11 @@ class Sensor(object):
            self.write_value()
 
         self.msg.value = self.value
-        self.msg.header.stamp = rospy.Time.now()
+        self.msg.header.stamp = self.get_clock().now().to_msg()
         self.pub.publish(self.msg)
     
     def poll(self):
-        now = rospy.Time.now()
+        now = self.get_clock().now()
         if now > self.t_next:
             # Update read counters
             self.diagnostics.reads += 1
@@ -223,7 +224,7 @@ class AnalogFloatSensor(AnalogSensor):
         
 class DigitalSensor(Sensor):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        Sensor.__init__(self, *args, **kwargs)
         
         self.message_type = MessageType.BOOL
         
@@ -234,16 +235,16 @@ class DigitalSensor(Sensor):
         # Get the initial state
         self.value = self.read_value()
 
-    def create_publisher(self):
-        self.pub = self.node.create_publisher(Digital, "sensor/" + self.name, 5)
+    def custom_create_publisher(self):
+        self.pub = self.create_publisher(Digital, "sensor/" + self.name, 5)
 
-    def create_services(self):
+    def custom_create_services(self):
         if self.direction == "output":
             self.device.digital_pin_mode(self.pin, OUTPUT)
-            self.node.create_service(DigitalSensorWrite, self.name + '/write', self.sensor_write_handler)
+            self.create_service(DigitalSensorWrite, self.name + '/write', self.sensor_write_handler)
         else:
             self.device.digital_pin_mode(self.pin, INPUT)
-            self.node.create_service(DigitalSensorRead, self.name + '/read', self.sensor_read_handler)
+            self.create_service(DigitalSensorRead, self.name + '/read', self.sensor_read_handler)
 
     def read_value(self):
         return self.device.digital_read(self.pin)

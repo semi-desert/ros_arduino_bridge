@@ -22,7 +22,7 @@
 import rclpy
 import rclpy.duration
 from rclpy.node import Node
-from ros_arduino_python.miscellaneous import rc_logger
+from ros_arduino_python.miscellaneous import rc_logger, declare_params, declare_json_params, to_str
 from ros_arduino_python.arduino_driver import Arduino
 from ros_arduino_python.arduino_sensors import DigitalSensor, AnalogSensor, AnalogFloatSensor
 from ros_arduino_python.arduino_sensors import PololuMotorCurrent, PhidgetsVoltage, PhidgetsCurrent
@@ -68,73 +68,19 @@ class ArduinoROS(Node):
         sensor_state_msg.value = [0.01, 2.57]
         self.sensorStatePub.publish(sensor_state_msg)
         # self.get_logger().info('Publishing: sensor_state_msg "%s"' % sensor_state_msg.name)
-
-    def load_json_config(self, param_name):
-        sensors_config_str = self.get_parameter(param_name).get_parameter_value().string_value
-        try:
-            config = json.loads(sensors_config_str)
-            print("json config:", config)
-            return config
-        except Exception as e:
-            self.get_logger().warn(f'Failed to load config: {e}')
     
+    def cmdVelCallback(self, req):
+        self.last_cmd_vel = self.get_clock().now()
+        x = req.linear.x         # m/s
+        th = req.angular.z       # rad/s
+        print("arduino cmd_vel x:", x, "th:", th)
+
     def __init__(self):
         super().__init__('arduino')
         self.inum = 0
         self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
-
-        self.declare_parameter('port', '/dev/ttyUSB0')
-        self.declare_parameter('baud', 57600)
-        self.declare_parameter('timeout', 0.1)
-        self.declare_parameter('base_frame', 'base_footprint')
-        self.declare_parameter('rate', 50)
-
-        self.declare_parameter('sensorstate_rate', 10)
-        self.declare_parameter('use_base_controller', True)
-        self.declare_parameter('diagnotics_error_threshold', 10)
-        self.declare_parameter('diagnotics_rate', 1.0)
-        
-        self.declare_parameter('joint_update_rate', 10)
-        self.declare_parameter('base_controller_rate', 10)
-        self.declare_parameter('base_controller_timeout', 1.0)
-        self.declare_parameter('odom_linear_scale_correction', 1.0)
-        self.declare_parameter('odom_angular_scale_correction', 1.0)
-        self.declare_parameter('use_imu_heading', False)
-        self.declare_parameter('publish_odom_base_transform', True)
-
-        self.declare_parameter('wheel_diameter', 0.066)
-        self.declare_parameter('wheel_track', 0.215)
-        self.declare_parameter('encoder_resolution', 3960)
-        self.declare_parameter('gear_reduction', 1.0)
-
-        self.declare_parameter('Kp', 20)
-        self.declare_parameter('Kd', 12)
-        self.declare_parameter('Ki', 0)
-        self.declare_parameter('Ko', 50)
-        self.declare_parameter('accel_limit', 1.0)
-        self.declare_parameter('motors_reversed', False)
-        self.declare_parameter('detect_enc_jump_error', False)
-        self.declare_parameter('enc_jump_error_threshold', 1000)
-        self.declare_parameter('base_diagnotics_error_threshold', 10)
-        self.declare_parameter('base_diagnotics_rate', 1.0)
-
-        self.declare_parameter('sensors', """{
-                                    "onboard_led": 
-                                        {"pin": 13, "type": "Digital", "rate": 5, "direction": "output"}
-                               }""")
-        self.declare_parameter('joints', """{}""")
-        #self.declare_parameter('joints', """{
-        #                            "head_pan_joint": 
-        #                                {"pin": 3, "init_position": 0, "init_speed": 90, "neutral": 90, "min_position": -90, "max_position": 90, "invert": false, "continuous": false},
-        #                            "head_tilt_joint": 
-        #                                {"pin": 5, "init_position": 0, "init_speed": 90, "neutral": 90, "min_position": -90, "max_position": 90, "invert": false, "continuous": false}
-        #                       }""")
-        self.declare_parameter('controllers', """{}""")
-        #self.declare_parameter('controllers', """{
-        #                        }""")
-        self.sensors_config = self.load_json_config("sensors")
-        self.joints_config = self.load_json_config("joints")
-        self.controllers_config = self.load_json_config("controllers")
+        declare_params(self)
+        declare_json_params(self)
 
         # Find the actual node name in case it is set in the launch file
         self.name = self.get_name()
@@ -187,7 +133,8 @@ class ArduinoROS(Node):
         # a single topic.
         self.sensorStatePub = self.create_publisher(SensorState, 'sensor_state', 5)
         self.strtopicPub = self.create_publisher(String, 'strtopic', 10)
-        self.timer = self.create_timer(1, self.timer_callback)
+        #self.timer = self.create_timer(1, self.timer_callback)
+        #self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmdVelCallback, 5)
 
         # A service to attach a PWM servo to a specified pin
         self.create_service(ServoAttach, 'servo_attach', self.ServoAttachHandler)
@@ -234,8 +181,7 @@ class ArduinoROS(Node):
 
         # Initialize the base controller if used
         if self.use_base_controller:
-            self.base_controller = BaseController(self, 
-                                                  self.device, 
+            self.base_controller = BaseController(self.device, 
                                                   self.base_frame, 
                                                   self.name + "_base_controller")
             
@@ -270,23 +216,23 @@ class ArduinoROS(Node):
         for name, params in sensor_params.items():
             print("sensor params:", params)
             if params['type'].lower() == 'Ping'.lower():
-                sensor = Ping(self.device, name, node=self, **params)
+                sensor = Ping(self.device, name, **params)
             elif params['type'].lower() == 'GP2D12'.lower() or params['type'].lower() == 'GP2Y0A21YK0F'.lower():
-                sensor = GP2D12(self.device, name, node=self, **params)
+                sensor = GP2D12(self.device, name, **params)
             elif params['type'].lower() == 'Digital'.lower():
-                sensor = DigitalSensor(self.device, name, node=self, **params)
+                sensor = DigitalSensor(self.device, name, **params)
             elif params['type'].lower() == 'Analog'.lower():
-                sensor = AnalogSensor(self.device, name, node=self, **params)
+                sensor = AnalogSensor(self.device, name, **params)
             elif params['type'].lower() == 'AnalogFloat'.lower():
-                sensor = AnalogFloatSensor(self.device, name, node=self, **params)
+                sensor = AnalogFloatSensor(self.device, name, **params)
             elif params['type'].lower() == 'PololuMotorCurrent'.lower():
-                sensor = PololuMotorCurrent(self.device, name, node=self, **params)
+                sensor = PololuMotorCurrent(self.device, name, **params)
             elif params['type'].lower() == 'PhidgetsVoltage'.lower():
-                sensor = PhidgetsVoltage(self.device, name, node=self, **params)
+                sensor = PhidgetsVoltage(self.device, name, **params)
             elif params['type'].lower() == 'PhidgetsCurrent'.lower():
-                sensor = PhidgetsCurrent(self.device, name, node=self, **params)
+                sensor = PhidgetsCurrent(self.device, name, **params)
             elif params['type'].lower() == 'IMU'.lower():
-                sensor = IMU(self.device, name, node=self, **params)
+                sensor = IMU(self.device, name, **params)
                 try:
                     if params['use_for_odom']:
                         self.imu_for_odom.append(sensor)
@@ -294,9 +240,9 @@ class ArduinoROS(Node):
                     pass
             elif params['type'].lower() == 'Gyro'.lower():
                 try:
-                    sensor = Gyro(self.device, name, node=self, base_controller=self.base_controller, **params)
+                    sensor = Gyro(self.device, name, base_controller=self.base_controller, **params)
                 except:
-                    sensor = Gyro(self.device, name, node=self, **params)
+                    sensor = Gyro(self.device, name, **params)
 
                 try:
                     if params['use_for_odom']:
@@ -359,7 +305,6 @@ class ArduinoROS(Node):
         # Create the diagnostics updater for the Arduino device
         self.device.diagnostics = DiagnosticsUpdater(self, 
                                                      self.name, 
-                                                     self,
                                                      self.diagnotics_error_threshold, 
                                                      self.diagnotics_rate, create_watchdog=True)
         
@@ -387,15 +332,18 @@ class ArduinoROS(Node):
             controller.startup()
             
         print("\n==> ROS Arduino Bridge ready for action!")
-    
+        return
         # Start polling the sensors, base controller, and servo controller
-        while not rclpy.ok(): # rclpy.ok()
+        while rclpy.ok():
             # Heartbeat/watchdog test for the serial connection
             try:
                 # Update read counters
                 self.device.diagnostics.reads += 1
                 self.device.diagnostics.total_reads += 1
-                self.device.serial_port.inWaiting()
+                #self.device.serial_port.inWaiting()
+                in_waiting = self.device.serial_port.in_waiting
+                #print("polling in_waiting:", in_waiting)
+
                 # Add this heartbeat to the frequency status diagnostic task
                 self.device.diagnostics.freq_diag.tick()
                 # Let the diagnostics updater know we're still alive
@@ -412,12 +360,15 @@ class ArduinoROS(Node):
                         try:
                             self.device.open()
                             while True:
-                                self.device.serial_port.write('\r')
-                                test = self.device.serial_port.readline().strip('\n').strip('\r')
+                                self.device.serial_port.write(b'\r')
+                                test = self.device.serial_port.readline().strip(b'\n').strip(b'\r')
+                                test = to_str(test)
+                                print("io error test:", test)
                                 self.get_logger().info("Waking up serial port...")
                                 if test == 'Invalid Command':
-                                    self.device.serial_port.flushInput()
-                                    self.device.serial_port.flushOutput()
+                                    #self.device.serial_port.flushInput()
+                                    #self.device.serial_port.flushOutput()
+                                    self.device.serial_port.flush()
                                     break
                             self.get_logger().info("Serial connection re-established.")
                             break
@@ -449,7 +400,7 @@ class ArduinoROS(Node):
             if now > self.t_next_sensors:
                 msg = SensorState()
                 msg.header.frame_id = self.base_frame
-                msg.header.stamp = now
+                msg.header.stamp = now.to_msg()
                 for i in range(len(self.device.sensors)):
                     if self.device.sensors[i].message_type != MessageType.IMU:
                         msg.name.append(self.device.sensors[i].name)
@@ -463,8 +414,8 @@ class ArduinoROS(Node):
                 
             # Update diagnostics and publish
             self.diagnostics_publisher.update()
-            
-            self.loop_rate.sleep()
+            #self.get_logger().info("----- loop -----")
+            #self.loop_rate.sleep()
     
     # Service callback functions
     def ServoAttachHandler(self, req, res):
