@@ -186,7 +186,7 @@ class BaseController(Node):
             # Check for jumps in encoder readings
             if self.detect_enc_jump_error:
                 try:
-                    #rospy.loginfo("Left: %d LEFT: %d Right: %d RIGHT: %d", left_enc, self.enc_left, right_enc, self.enc_right)
+                    self.get_logger().info("Left: %d LEFT: %d Right: %d RIGHT: %d", left_enc, self.enc_left, right_enc, self.enc_right)
                     enc_jump_error = False
                     if abs(right_enc - self.enc_right) > self.enc_jump_error_threshold:
                         self.diagnostics.errors += 1

@@ -23,6 +23,7 @@ import rclpy
 import rclpy.duration
 from rclpy.node import Node
 from ros_arduino_python.miscellaneous import rc_logger, declare_params, declare_json_params, to_str
+from ros_arduino_python.miscellaneous import Timer
 from ros_arduino_python.arduino_driver import Arduino
 from ros_arduino_python.arduino_sensors import DigitalSensor, AnalogSensor, AnalogFloatSensor
 from ros_arduino_python.arduino_sensors import PololuMotorCurrent, PhidgetsVoltage, PhidgetsCurrent
@@ -37,10 +38,6 @@ from ros_arduino_python.base_controller import BaseController
 from ros_arduino_python.servo_controller import Servo, ServoController, ContinousServo
 from ros_arduino_python.follow_controller import FollowController
 from ros_arduino_python.joint_state_publisher import JointStatePublisher
-
-# from ros_arduino_python.cfg import ROSArduinoBridgeConfig
-# import dynamic_reconfigure.server
-# import dynamic_reconfigure.client
 
 from std_msgs.msg import String
 from geometry_msgs.msg import Twist
@@ -78,6 +75,8 @@ class ArduinoROS(Node):
     def __init__(self):
         super().__init__('arduino')
         self.inum = 0
+        self.nlist = []
+
         self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
         declare_params(self)
         declare_json_params(self)
@@ -134,7 +133,7 @@ class ArduinoROS(Node):
         self.sensorStatePub = self.create_publisher(SensorState, 'sensor_state', 5)
         self.strtopicPub = self.create_publisher(String, 'strtopic', 10)
         #self.timer = self.create_timer(1, self.timer_callback)
-        #self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmdVelCallback, 5)
+        self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmdVelCallback, 1)
 
         # A service to attach a PWM servo to a specified pin
         self.create_service(ServoAttach, 'servo_attach', self.ServoAttachHandler)
@@ -184,21 +183,12 @@ class ArduinoROS(Node):
             self.base_controller = BaseController(self.device, 
                                                   self.base_frame, 
                                                   self.name + "_base_controller")
-            
+            self.nlist.append(self.base_controller)
             # A service to reset the odometry values to 0
             self.create_service(Empty, 'reset_odometry', self.ResetOdometryHandler)
     
             # A service to update the PID parameters Kp, Kd, Ki, and Ko
             self.create_service(UpdatePID, 'update_pid', self.UpdatePIDHandler)
-            
-            # Fire up the dynamic_reconfigure server
-            #dyn_server = dynamic_reconfigure.server.Server(ROSArduinoBridgeConfig, self.dynamic_reconfigure_server_callback, namespace=self.name)
-
-            # Connect to the dynamic_reconfigure client
-            #dyn_client = dynamic_reconfigure.client.Client (self.name, timeout=5)
-     
-        # Reserve a thread lock
-        mutex = threading.Lock()  # thread.allocate_lock()
 
         # Initialize any sensors
         self.device.sensors = list()
@@ -233,22 +223,16 @@ class ArduinoROS(Node):
                 sensor = PhidgetsCurrent(self.device, name, **params)
             elif params['type'].lower() == 'IMU'.lower():
                 sensor = IMU(self.device, name, **params)
-                try:
-                    if params['use_for_odom']:
-                        self.imu_for_odom.append(sensor)
-                except:
-                    pass
+                if params['use_for_odom']:
+                    self.imu_for_odom.append(sensor)
             elif params['type'].lower() == 'Gyro'.lower():
                 try:
                     sensor = Gyro(self.device, name, base_controller=self.base_controller, **params)
                 except:
                     sensor = Gyro(self.device, name, **params)
 
-                try:
-                    if params['use_for_odom']:
-                        self.imu_for_odom.append(sensor)
-                except:
-                    pass
+                if params['use_for_odom']:
+                    self.imu_for_odom.append(sensor)
                 
                 # if params['type'].lower() == 'MaxEZ1'.lower():
                 #     self.sensors[len(self.sensors)]['trigger_pin'] = params['trigger_pin']
@@ -256,6 +240,7 @@ class ArduinoROS(Node):
 
             try:
                 self.device.sensors.append(sensor)
+                self.nlist.append(sensor)
             
                 if params['rate'] != None and params['rate'] != 0:
                     rc_logger.info(name + " " + str(params) + " published on topic " + self.get_name() + "/sensor/" + name)
@@ -332,90 +317,6 @@ class ArduinoROS(Node):
             controller.startup()
             
         print("\n==> ROS Arduino Bridge ready for action!")
-        return
-        # Start polling the sensors, base controller, and servo controller
-        while rclpy.ok():
-            # Heartbeat/watchdog test for the serial connection
-            try:
-                # Update read counters
-                self.device.diagnostics.reads += 1
-                self.device.diagnostics.total_reads += 1
-                #self.device.serial_port.inWaiting()
-                in_waiting = self.device.serial_port.in_waiting
-                #print("polling in_waiting:", in_waiting)
-
-                # Add this heartbeat to the frequency status diagnostic task
-                self.device.diagnostics.freq_diag.tick()
-                # Let the diagnostics updater know we're still alive
-                self.device.diagnostics.watchdog = True
-            except IOError:
-                # Update error counter
-                self.device.diagnostics.errors += 1
-                self.get_logger().info("Lost serial connection. Waiting to reconnect...")
-                # Let the diagnostics updater know that we're down
-                self.device.diagnostics.watchdog = False
-                self.device.close()
-                with mutex:
-                    while True:
-                        try:
-                            self.device.open()
-                            while True:
-                                self.device.serial_port.write(b'\r')
-                                test = self.device.serial_port.readline().strip(b'\n').strip(b'\r')
-                                test = to_str(test)
-                                print("io error test:", test)
-                                self.get_logger().info("Waking up serial port...")
-                                if test == 'Invalid Command':
-                                    #self.device.serial_port.flushInput()
-                                    #self.device.serial_port.flushOutput()
-                                    self.device.serial_port.flush()
-                                    break
-                            self.get_logger().info("Serial connection re-established.")
-                            break
-                        except:
-                            self.loop_rate.sleep()
-                            self.diagnostics_publisher.update()
-                            continue
-            
-            # Poll any sensors
-            for sensor in self.device.sensors:
-                if sensor.rate != 0:
-                    with mutex:
-                        sensor.poll()
-                                     
-            # Poll the base controller
-            if self.use_base_controller:
-                with mutex:
-                    self.base_controller.poll()
-                
-            # Poll any joints
-            if self.have_joints:
-                with mutex:
-                    self.servo_controller.poll()
-                    self.joint_state_publisher.poll(self.device.joints.values())
-                                
-            # Publish all sensor values on a single topic for convenience
-            now = self.get_clock().now()
-            
-            if now > self.t_next_sensors:
-                msg = SensorState()
-                msg.header.frame_id = self.base_frame
-                msg.header.stamp = now.to_msg()
-                for i in range(len(self.device.sensors)):
-                    if self.device.sensors[i].message_type != MessageType.IMU:
-                        msg.name.append(self.device.sensors[i].name)
-                        msg.value.append(self.device.sensors[i].value)
-                try:
-                    self.sensorStatePub.publish(msg)
-                except:
-                    pass
-                
-                self.t_next_sensors = now + self.t_delta_sensors
-                
-            # Update diagnostics and publish
-            self.diagnostics_publisher.update()
-            #self.get_logger().info("----- loop -----")
-            #self.loop_rate.sleep()
     
     # Service callback functions
     def ServoAttachHandler(self, req, res):
@@ -495,39 +396,6 @@ class ArduinoROS(Node):
         else:
             rc_logger.warn("Not using base controller!")
         return res
-
-#     def dynamic_reconfigure_server_callback(self, config, level):
-#         if self.use_base_controller:
-#             try:
-#                 if self.base_controller.Kp != config['Kp']:
-#                     self.base_controller.Kp = config['Kp']
-
-#                 if self.base_controller.Kd != config['Kd']:
-#                     self.base_controller.Kd = config['Kd']
-
-#                 if self.base_controller.Ki != config['Ki']:
-#                     self.base_controller.Ki = config['Ki']
-
-#                 if self.base_controller.Ko != config['Ko']:
-#                     self.base_controller.Ko = config['Ko']
-
-#                 if self.base_controller.accel_limit != config['accel_limit']:
-#                     self.base_controller.accel_limit = config['accel_limit']
-#                     self.base_controller.max_accel = self.base_controller.accel_limit * self.base_controller.ticks_per_meter / self.base_controller.rate
-
-#                 if self.base_controller.odom_linear_scale_correction != config['odom_linear_scale_correction']:
-#                     self.base_controller.odom_linear_scale_correction = config['odom_linear_scale_correction']
-                    
-#                 if self.base_controller.odom_angular_scale_correction != config['odom_angular_scale_correction']:
-#                     self.base_controller.odom_angular_scale_correction = config['odom_angular_scale_correction']
-
-#                 self.device.update_pid(self.base_controller.Kp, self.base_controller.Kd, self.base_controller.Ki, self.base_controller.Ko)
-
-#                 rospy.loginfo("Updating PID parameters: Kp=%0.2f, Kd=%0.2f, Ki=%0.2f, Ko=%0.2f, accel_limit=%0.2f" %(self.base_controller.Kp, self.base_controller.Kd, self.base_controller.Ki, self.base_controller.Ko, self.base_controller.accel_limit))
-#             except Exception as e:
-#                 print(e)
-
-#         return config
         
     def shutdown(self):
         self.get_logger().info("Shutting down Arduino node...")
@@ -536,33 +404,151 @@ class ArduinoROS(Node):
         if self.use_base_controller:
             self.get_logger().info("Stopping the robot...")
             self.cmd_vel_pub.publish(Twist())
-            self.loop_rate.sleep()
+            #self.loop_rate.sleep()
+            time.sleep(2.0)
 
         # Detach any servos
         if self.have_joints:
             self.get_logger().info("Detaching servos...")
             for joint in self.device.joints.values():
                 self.device.detach_servo(joint.pin)
-                self.loop_rate.sleep()
+                #self.loop_rate.sleep()
+                time.sleep(2.0)
                 
         # Close the serial port
         self.device.close()
+
+def spin_while_loop(self):
+    timer = Timer()
+    while rclpy.ok():
+        timer.start()
+        rclpy.spin_once(self)
+        for n in self.nlist:
+           rclpy.spin_once(n)
+        timer.stop()
+
+def rcl_while_loop(self):
+    # Reserve a thread lock
+    
+    thread_spin = threading.Thread(target=spin_while_loop, args=(self, ), daemon=True)
+    thread_spin.start()
+
+    mutex = threading.Lock()
+    timer = Timer()
+    # Start polling the sensors, base controller, and servo controller
+    while rclpy.ok():
+        #timer.start()
+        #rclpy.spin_once(self)
+        #for n in self.nlist:
+        #    rclpy.spin_once(n)
+        #timer.stop()
+        #timer.start()
+
+        # Heartbeat/watchdog test for the serial connection
+        try:
+            # Update read counters
+            self.device.diagnostics.reads += 1
+            self.device.diagnostics.total_reads += 1
+            #self.device.serial_port.inWaiting()
+            in_waiting = self.device.serial_port.in_waiting
+            #print("polling in_waiting:", in_waiting)
+
+            # Add this heartbeat to the frequency status diagnostic task
+            self.device.diagnostics.freq_diag.tick()
+            # Let the diagnostics updater know we're still alive
+            self.device.diagnostics.watchdog = True
+        except IOError:
+            # Update error counter
+            self.device.diagnostics.errors += 1
+            self.get_logger().info("Lost serial connection. Waiting to reconnect...")
+            # Let the diagnostics updater know that we're down
+            self.device.diagnostics.watchdog = False
+            self.device.close()
+            with mutex:
+                while True:
+                    try:
+                        self.device.open()
+                        while True:
+                            self.device.serial_port.write(b'\r')
+                            test = self.device.serial_port.readline().strip(b'\n').strip(b'\r')
+                            test = to_str(test)
+                            print("io error test:", test)
+                            self.get_logger().info("Waking up serial port...")
+                            if test == 'Invalid Command':
+                                #self.device.serial_port.flushInput()
+                                #self.device.serial_port.flushOutput()
+                                self.device.serial_port.flush()
+                                break
+                        self.get_logger().info("Serial connection re-established.")
+                        break
+                    except:
+                        #self.loop_rate.sleep()
+                        time.sleep(0.5)
+                        self.diagnostics_publisher.update()
+                        continue
         
+        # Poll any sensors
+        for sensor in self.device.sensors:
+            if sensor.rate != 0:
+                with mutex:
+                    sensor.poll()
+                                    
+        # Poll the base controller
+        if self.use_base_controller:
+            with mutex:
+                self.base_controller.poll()
+            
+        # Poll any joints
+        if self.have_joints:
+            with mutex:
+                self.servo_controller.poll()
+                self.joint_state_publisher.poll(self.device.joints.values())
+                            
+        # Publish all sensor values on a single topic for convenience
+        now = self.get_clock().now()
+        
+        if now > self.t_next_sensors:
+            msg = SensorState()
+            msg.header.frame_id = self.base_frame
+            msg.header.stamp = now.to_msg()
+            for i in range(len(self.device.sensors)):
+                if self.device.sensors[i].message_type != MessageType.IMU:
+                    msg.name.append(self.device.sensors[i].name)
+                    msg.value.append(self.device.sensors[i].value)
+            try:
+                self.sensorStatePub.publish(msg)
+            except:
+                pass
+            
+            self.t_next_sensors = now + self.t_delta_sensors
+            
+        # Update diagnostics and publish
+        self.diagnostics_publisher.update()
+        #self.get_logger().info("----- loop -----")
+
+        self.loop_rate.sleep()
+        #time.sleep(0.5)
+
+        #timer.stop()
+        #print(self.inum)
+        self.inum += 1
+
 def main(args=None):
     try:
         rclpy.init(args=args)
-        myArduino = ArduinoROS()
+        arduino = ArduinoROS()
 
-        rclpy.spin(myArduino)
+        #rclpy.spin(arduino)
+        rcl_while_loop(arduino)
 
         # Destroy the node explicitly
         # (optional - otherwise it will be done automatically
         # when the garbage collector destroys the node object)
-        myArduino.destroy_node()
+        arduino.destroy_node()
         rclpy.shutdown()
     except KeyboardInterrupt:
         try:
-            myArduino.device.serial_port.close()
+            arduino.device.serial_port.close()
         except:
             rc_logger.warn("Serial exception trying to close port.")
             os._exit(0)
