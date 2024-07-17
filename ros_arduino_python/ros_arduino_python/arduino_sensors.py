@@ -19,7 +19,7 @@
     http://www.gnu.org/licenses/gpl.html
 """
 
-import rclpy
+import rclpy, time
 from rclpy.node import Node
 from ros_arduino_python.miscellaneous import rc_logger
 from sensor_msgs.msg import Range, Imu
@@ -28,7 +28,9 @@ from ros_arduino_python.arduino_driver import CommandErrorCode, CommandException
 from ros_arduino_python.diagnostics import DiagnosticsUpdater
 
 from ros_arduino_msgs.srv import DigitalSensorWrite, DigitalSensorRead
-from ros_arduino_msgs.msg import Digital
+from ros_arduino_msgs.srv import AnalogSensorWrite, AnalogSensorRead
+from ros_arduino_msgs.srv import AnalogFloatSensorWrite, AnalogFloatSensorRead
+from ros_arduino_msgs.msg import Digital, Analog, AnalogFloat
 
 from math import pow, radians
 import tf2_ros
@@ -51,13 +53,13 @@ class MessageType:
     BOOL = 5
     IMU = 6
     
-class Sensor(Node):
-    def __init__(self, device, name, pin=None, rate=0, direction="input", frame_id="base_link", **kwargs):
-        Node.__init__(self, name)
+class Sensor:
+    def __init__(self, device, name, pin=None, node=None, rate=0, direction="input", frame_id="base_link", **kwargs):
         print("sensor node init, name:", name)
         self.device = device
         self.name = name
         self.pin = pin
+        self.node = node
         self.rate = rate
         self.direction = direction
         self.frame_id = frame_id
@@ -74,10 +76,10 @@ class Sensor(Node):
         print("sensor error_threshold:", diagnotics_error_threshold)
         print("sensor rate:", diagnostics_rate)
         # The DiagnosticsUpdater class is defined in the diagnostics.py module
-        self.diagnostics = DiagnosticsUpdater(self, 
-                                              name + '_sensor', 
-                                              diagnotics_error_threshold, 
-                                              diagnostics_rate)    
+        #self.diagnostics = DiagnosticsUpdater(self, 
+        #                                      name + '_sensor', 
+        #                                      diagnotics_error_threshold, 
+        #                                      diagnostics_rate)    
 
         # Initialize the component's value
         self.value = None
@@ -91,7 +93,7 @@ class Sensor(Node):
 
         # Intialize the next polling time stamp
         if self.rate != 0:
-            now = self.get_clock().now()
+            now = self.node.get_clock().now()
             self.t_delta = rclpy.duration.Duration(seconds=1.0 / self.rate)
             self.t_next = now + self.t_delta
             print("now:", now)
@@ -126,27 +128,27 @@ class Sensor(Node):
            self.write_value()
 
         self.msg.value = self.value
-        self.msg.header.stamp = self.get_clock().now().to_msg()
+        self.msg.header.stamp = self.node.get_clock().now().to_msg()
         self.pub.publish(self.msg)
     
     def poll(self):
-        now = self.get_clock().now()
+        now = self.node.get_clock().now()
         if now > self.t_next:
             # Update read counters
-            self.diagnostics.reads += 1
-            self.diagnostics.total_reads += 1
+            #self.diagnostics.reads += 1
+            #self.diagnostics.total_reads += 1
             # Add a successful poll to the frequency status diagnostic task
-            self.diagnostics.freq_diag.tick()
+            #self.diagnostics.freq_diag.tick()
             try:
                 self.publish_message()
             except CommandException as e:
                 # Update error counter
-                self.diagnostics.errors += 1
+                #self.diagnostics.errors += 1
                 rc_logger.error('Command Exception: ' + CommandErrorCode.ErrorCodeStrings[e.code])
                 rc_logger.error("Invalid value read from sensor: " + str(self.name))
             except TypeError as e:
                 # Update error counter
-                self.diagnostics.errors += 1
+                #self.diagnostics.errors += 1
                 rc_logger.error('Type Error: ' + e.message)
 
             # Compute the next polling time stamp
@@ -162,15 +164,15 @@ class AnalogSensor(Sensor):
         self.msg.header.frame_id = self.frame_id
 
     def create_publisher(self):
-        self.pub = rospy.Publisher("~sensor/" + self.name, Analog, queue_size=5)
+        self.pub = self.node.create_publisher(Analog, "sensor/" + self.name, 5)
 
     def create_services(self):
         if self.direction == "output":
             self.device.analog_pin_mode(self.pin, OUTPUT)
-            rospy.Service('~' + self.name + '/write', AnalogSensorWrite, self.sensor_write_handler)
+            self.node.create_service(AnalogSensorWrite, self.name + '/write', self.sensor_write_handler)
         else:
             self.device.analog_pin_mode(self.pin, INPUT)
-            rospy.Service('~' + self.name + '/read', AnalogSensorRead, self.sensor_read_handler)
+            self.node.create_service(AnalogSensorRead, self.name + '/read', self.sensor_read_handler)
 
     def read_value(self):
         return self.scale * (self.device.analog_read(self.pin) - self.offset)
@@ -178,14 +180,15 @@ class AnalogSensor(Sensor):
     def write_value(self, value):
         return self.device.analog_write(self.pin, value)
 
-    def sensor_read_handler(self, req=None):
+    def sensor_read_handler(self, req, res):
         self.value = self.read_value()
-        return AnalogSensorReadResponse(self.value)
+        res.value = self.value
+        return res
 
-    def sensor_write_handler(self, req):
+    def sensor_write_handler(self, req, res):
         self.write_value(req.value)
         self.value = req.value
-        return AnalogSensorWriteResponse()
+        return res
 
 class AnalogFloatSensor(AnalogSensor):
     def __init__(self, *args, **kwargs):
@@ -197,15 +200,15 @@ class AnalogFloatSensor(AnalogSensor):
         self.msg.header.frame_id = self.frame_id
 
     def create_publisher(self):
-        self.pub = rospy.Publisher("~sensor/" + self.name, AnalogFloat, queue_size=5)
+        self.pub = self.node.create_publisher(AnalogFloat, "sensor/" + self.name, 5)
 
     def create_services(self):
         if self.direction == "output":
             self.device.analog_pin_mode(self.pin, OUTPUT)
-            rospy.Service('~' + self.name + '/write', AnalogFloatSensorWrite, self.sensor_write_handler)
+            self.node.create_service(AnalogFloatSensorWrite, self.name + '/write', self.sensor_write_handler)
         else:
             self.device.analog_pin_mode(self.pin, INPUT)
-            rospy.Service('~' + self.name + '/read', AnalogFloatSensorRead, self.sensor_read_handler)
+            self.node.create_service(AnalogFloatSensorRead, self.name + '/read', self.sensor_read_handler)
 
     def read_value(self):
         return self.scale * (self.device.analog_read(self.pin) - self.offset)
@@ -213,14 +216,15 @@ class AnalogFloatSensor(AnalogSensor):
     def write_value(self, value):
         return self.device.analog_write(self.pin, value)
     
-    def sensor_read_handler(self, req=None):
+    def sensor_read_handler(self, req, res):
         self.value = self.read_value()
-        return AnalogFloatSensorReadResponse(self.value)
+        res.value = self.value
+        return res
     
-    def sensor_write_handler(self, req):
+    def sensor_write_handler(self, req, res):
         self.write_value(req.value)
         self.value = req.value
-        return AnalogFloatSensorWriteResponse()
+        return res
         
 class DigitalSensor(Sensor):
     def __init__(self, *args, **kwargs):
@@ -234,17 +238,24 @@ class DigitalSensor(Sensor):
 
         # Get the initial state
         self.value = self.read_value()
+        #self.cmd_vel_sub = self.node.create_subscription(Twist, 'cmd_vel', self.cmdVelCallback, 1)
+
+    def cmdVelCallback(self, req):
+        self.last_cmd_vel = self.node.get_clock().now()
+        x = req.linear.x         # m/s
+        th = req.angular.z       # rad/s
+        print("digital sensor cmd_vel x:", x, "th:", th)
 
     def custom_create_publisher(self):
-        self.pub = self.create_publisher(Digital, "sensor/" + self.name, 5)
+        self.pub = self.node.create_publisher(Digital, "sensor/" + self.name, 5)
 
     def custom_create_services(self):
         if self.direction == "output":
             self.device.digital_pin_mode(self.pin, OUTPUT)
-            self.create_service(DigitalSensorWrite, self.name + '/write', self.sensor_write_handler)
+            self.node.create_service(DigitalSensorWrite, self.name + '/write', self.sensor_write_handler)
         else:
             self.device.digital_pin_mode(self.pin, INPUT)
-            self.create_service(DigitalSensorRead, self.name + '/read', self.sensor_read_handler)
+            self.node.create_service(DigitalSensorRead, self.name + '/read', self.sensor_read_handler)
 
     def read_value(self):
         return self.device.digital_read(self.pin)
@@ -279,20 +290,21 @@ class RangeSensor(Sensor):
         self.msg.header.frame_id = self.frame_id
 
     def create_publisher(self):
-        self.pub = rospy.Publisher("~sensor/" + self.name, Range, queue_size=5)
+        self.pub = self.node.create_publisher(Range, "sensor/" + self.name, 5)
     
     def create_services(self):
-        rospy.Service('~' + self.name + '/read', AnalogFloatSensorRead, self.sensor_read_handler)
+        self.node.create_service(AnalogFloatSensorRead, self.name + '/read', self.sensor_read_handler)
         
     def publish_message(self):
         self.value = self.read_value()
         self.msg.range = self.value
-        self.msg.header.stamp = rospy.Time.now()
+        self.msg.header.stamp = self.node.get_clock().now()
         self.pub.publish(self.msg)
 
-    def sensor_read_handler(self, req=None):
+    def sensor_read_handler(self, req, res):
         self.value = self.read_value()
-        return AnalogFloatSensorReadResponse(self.value)
+        res.value = self.value
+        return res
 
 class SonarSensor(RangeSensor):
     def __init__(self, *args, **kwargs):
@@ -369,7 +381,7 @@ class IMU(Sensor):
         self.msg.linear_acceleration_covariance = [1e-6, 0, 0, 0, 1e6, 0, 0, 0, 1e6]
 
     def create_publisher(self):
-        self.pub = rospy.Publisher("~sensor/" + self.name, Imu, queue_size=5)
+        self.pub = self.node.create_publisher(Imu, "sensor/" + self.name, 5)
 
     def read_value(self):
         '''
@@ -386,7 +398,7 @@ class IMU(Sensor):
         try:
             ax, ay, az, gx, gy, gz, mx, my, mz, roll, pitch, ch = data
         except:
-            rospy.logerr("Invalid value read from sensor: " + str(self.name))
+            rc_logger.error("Invalid value read from sensor: " + str(self.name))
             return None
 
         roll = radians(roll)
@@ -411,7 +423,7 @@ class IMU(Sensor):
 
     def publish_message(self):
         self.read_value()
-        self.msg.header.stamp = rospy.Time.now()
+        self.msg.header.stamp = self.node.get_clock().now()
         self.pub.publish(self.msg)
 
 class Gyro(Sensor):
@@ -426,16 +438,17 @@ class Gyro(Sensor):
         self.message_type = MessageType.IMU
         self.direction = "input"
 
-        self.sensitivity =  rospy.get_param('~sensors/' + self.name + '/sensitivity', None)
-        self.voltage = rospy.get_param('~sensors/' + self.name + '/voltage', 5.0)
-        self.gyro_scale_correction = rospy.get_param('~sensors/' + self.name + '/gyro_scale_correction', 1.0)
+        self.sensitivity =  self.get_parameter('sensors/' + self.name + '/sensitivity', None)
+        self.voltage = self.get_parameter('sensors/' + self.name + '/voltage').get_parameter_value().double_value  # default 5.0
+        self.gyro_scale_correction = self.get_parameter('sensors/' + self.name + '/gyro_scale_correction').get_parameter_value().double_value  # default 1.0
 
         # Time in seconds to collect initial calibration data at startup
-        self.cal_start_interval = rospy.get_param('~sensors/' + self.name + '/cal_start_interval', 5.0)
+        self.cal_start_interval = self.get_parameter('sensors/' + self.name + '/cal_start_interval').get_parameter_value().double_value  # default 5.0
 
         if self.sensitivity is None:
-            rospy.logerr("Missing sensitivity parameter for gyro.")
-            rospy.signal_shutdown("Missing sensitivity parameter for gyro.")
+            rc_logger.error("Missing sensitivity parameter for gyro.")
+            #rospy.signal_shutdown("Missing sensitivity parameter for gyro.")
+
 
         self.rad_per_sec_per_adc_unit = radians(self.voltage / 1023.0 / self.sensitivity)
 
@@ -443,7 +456,7 @@ class Gyro(Sensor):
         self.last_time = None
 
         self.cal_offset = None
-        self.cal_drift_threshold = rospy.get_param('~sensors/' + self.name + '/cal_drift_threshold', 0.1)
+        self.cal_drift_threshold = self.get_parameter('sensors/' + self.name + '/cal_drift_threshold').get_parameter_value().double_value  # default 0.1
         self.cal_buffer = []
         self.cal_drift_buffer = []
         self.cal_buffer_length = 1000
@@ -463,11 +476,12 @@ class Gyro(Sensor):
         while cal_time < self.cal_start_interval:
             gyro_data = self.device.analog_read(self.pin)
             self.update_calibration(gyro_data)
-            rospy.sleep(update_interval)
+            #rospy.sleep(update_interval)
+            time.sleep(update_interval)
             cal_time += update_interval
 
     def create_publisher(self):
-        self.pub = rospy.Publisher("~sensor/" + self.name, Imu, queue_size=5)
+        self.pub = self.node.create_publisher(Imu, "sensor/" + self.name, 5)
 
     def read_value(self):
         gyro_data = self.device.analog_read(self.pin)
@@ -478,11 +492,11 @@ class Gyro(Sensor):
    
         # If this is the first measurement, just record the current time
         if self.last_time is None:
-            self.last_time = rospy.Time.now()
+            self.last_time = self.node.get_clock().now()
             return
 
         # Store the current time
-        current_time = rospy.Time.now()
+        current_time = self.node.get_clock().now()
 
         # Compute the time since the last measurement
         dt = (current_time - self.last_time).to_sec()
@@ -511,7 +525,7 @@ class Gyro(Sensor):
 
     def publish_message(self):
         self.read_value()
-        self.msg.header.stamp = rospy.Time.now()
+        self.msg.header.stamp = self.node.get_clock().now()
         self.pub.publish(self.msg)
 
     def update_calibration(self, gyro_data):

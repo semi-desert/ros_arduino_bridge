@@ -30,16 +30,16 @@
 
 ## @brief Controllers interact with ArbotiX hardware.
 from rclpy.node import Node
-class Controller(Node):
+class Controller:
 
     ## @brief Constructs a Controller instance.
     ##
     ## @param device The arbotix instance.
     ## 
     ## @param name The controller name.
-    def __init__(self, device, name):
-        super().__init__(name)
+    def __init__(self, device, name, node=None):
         print("controller node init, name:", name)
+        self.node = node
         self.name = name
         self.device = device
         self.pause = False

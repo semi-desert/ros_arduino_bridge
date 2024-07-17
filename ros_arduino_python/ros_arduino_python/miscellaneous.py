@@ -52,7 +52,7 @@ def declare_params(self):
 def declare_json_params(self):
     self.declare_parameter('sensors', """{
                                 "onboard_led": 
-                                    {"pin": 13, "type": "Digital", "rate": 10, "direction": "output"}
+                                    {"pin": 13, "type": "Digital", "rate": 2, "direction": "output"}
                             }""")
     self.declare_parameter('joints', """{}""")
     #self.declare_parameter('joints', """{

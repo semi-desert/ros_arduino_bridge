@@ -60,10 +60,10 @@ class ArduinoROS(Node):
         # self.get_logger().info('Publishing: str_msg "%s"' % str_msg.data)
         self.inum += 1
 
-        sensor_state_msg = SensorState()
-        sensor_state_msg.name = ["state1", "state2"]
-        sensor_state_msg.value = [0.01, 2.57]
-        self.sensorStatePub.publish(sensor_state_msg)
+        #sensor_state_msg = SensorState()
+        #sensor_state_msg.name = ["state1", "state2"]
+        #sensor_state_msg.value = [0.01, 2.57]
+        #self.sensorStatePub.publish(sensor_state_msg)
         # self.get_logger().info('Publishing: sensor_state_msg "%s"' % sensor_state_msg.name)
     
     def cmdVelCallback(self, req):
@@ -75,7 +75,6 @@ class ArduinoROS(Node):
     def __init__(self):
         super().__init__('arduino')
         self.inum = 0
-        self.nlist = []
 
         self.get_logger().set_level(rclpy.logging.LoggingSeverity.INFO)
         declare_params(self)
@@ -133,7 +132,7 @@ class ArduinoROS(Node):
         self.sensorStatePub = self.create_publisher(SensorState, 'sensor_state', 5)
         self.strtopicPub = self.create_publisher(String, 'strtopic', 10)
         #self.timer = self.create_timer(1, self.timer_callback)
-        self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmdVelCallback, 1)
+        #self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmdVelCallback, 1)
 
         # A service to attach a PWM servo to a specified pin
         self.create_service(ServoAttach, 'servo_attach', self.ServoAttachHandler)
@@ -182,8 +181,8 @@ class ArduinoROS(Node):
         if self.use_base_controller:
             self.base_controller = BaseController(self.device, 
                                                   self.base_frame, 
-                                                  self.name + "_base_controller")
-            self.nlist.append(self.base_controller)
+                                                  self.name + "_base_controller",
+                                                  node=self)
             # A service to reset the odometry values to 0
             self.create_service(Empty, 'reset_odometry', self.ResetOdometryHandler)
     
@@ -210,7 +209,7 @@ class ArduinoROS(Node):
             elif params['type'].lower() == 'GP2D12'.lower() or params['type'].lower() == 'GP2Y0A21YK0F'.lower():
                 sensor = GP2D12(self.device, name, **params)
             elif params['type'].lower() == 'Digital'.lower():
-                sensor = DigitalSensor(self.device, name, **params)
+                sensor = DigitalSensor(self.device, name, **params, node=self)
             elif params['type'].lower() == 'Analog'.lower():
                 sensor = AnalogSensor(self.device, name, **params)
             elif params['type'].lower() == 'AnalogFloat'.lower():
@@ -239,8 +238,8 @@ class ArduinoROS(Node):
                 #     self.sensors[len(self.sensors)]['output_pin'] = params['output_pin']
 
             try:
+                print("device sensors add:", sensor.name)
                 self.device.sensors.append(sensor)
-                self.nlist.append(sensor)
             
                 if params['rate'] != None and params['rate'] != 0:
                     rc_logger.info(name + " " + str(params) + " published on topic " + self.get_name() + "/sensor/" + name)
@@ -258,7 +257,7 @@ class ArduinoROS(Node):
         
         # TODO joints
         # Read in the joints (if any)    
-        #joint_params = rospy.get_param("~joints", dict())
+        #joint_params = rospy.get_param("joints", dict())
         joint_params = self.joints_config
         
         if len(joint_params) != 0:
@@ -288,13 +287,13 @@ class ArduinoROS(Node):
             self.joint_state_publisher = JointStatePublisher()
             
         # Create the diagnostics updater for the Arduino device
-        self.device.diagnostics = DiagnosticsUpdater(self, 
-                                                     self.name, 
-                                                     self.diagnotics_error_threshold, 
-                                                     self.diagnotics_rate, create_watchdog=True)
+        #self.device.diagnostics = DiagnosticsUpdater(self, 
+        #                                             self.name, 
+        #                                             self.diagnotics_error_threshold, 
+        #                                             self.diagnotics_rate, create_watchdog=True)
         
         # Create the overall diagnostics publisher
-        self.diagnostics_publisher = DiagnosticsPublisher(self)
+        #self.diagnostics_publisher = DiagnosticsPublisher(self)
         
         # TODO controllers
         # Initialize any trajectory action follow controllers
@@ -418,75 +417,58 @@ class ArduinoROS(Node):
         # Close the serial port
         self.device.close()
 
-def spin_while_loop(self):
-    timer = Timer()
-    while rclpy.ok():
-        timer.start()
-        rclpy.spin_once(self)
-        for n in self.nlist:
-           rclpy.spin_once(n)
-        timer.stop()
-
 def rcl_while_loop(self):
     # Reserve a thread lock
-    
-    thread_spin = threading.Thread(target=spin_while_loop, args=(self, ), daemon=True)
+    thread_spin = threading.Thread(target=rclpy.spin, args=(self, ), daemon=True)
     thread_spin.start()
 
     mutex = threading.Lock()
-    timer = Timer()
     # Start polling the sensors, base controller, and servo controller
     while rclpy.ok():
-        #timer.start()
-        #rclpy.spin_once(self)
-        #for n in self.nlist:
-        #    rclpy.spin_once(n)
-        #timer.stop()
-        #timer.start()
-
         # Heartbeat/watchdog test for the serial connection
-        try:
-            # Update read counters
-            self.device.diagnostics.reads += 1
-            self.device.diagnostics.total_reads += 1
-            #self.device.serial_port.inWaiting()
-            in_waiting = self.device.serial_port.in_waiting
-            #print("polling in_waiting:", in_waiting)
 
-            # Add this heartbeat to the frequency status diagnostic task
-            self.device.diagnostics.freq_diag.tick()
-            # Let the diagnostics updater know we're still alive
-            self.device.diagnostics.watchdog = True
-        except IOError:
-            # Update error counter
-            self.device.diagnostics.errors += 1
-            self.get_logger().info("Lost serial connection. Waiting to reconnect...")
-            # Let the diagnostics updater know that we're down
-            self.device.diagnostics.watchdog = False
-            self.device.close()
-            with mutex:
-                while True:
-                    try:
-                        self.device.open()
-                        while True:
-                            self.device.serial_port.write(b'\r')
-                            test = self.device.serial_port.readline().strip(b'\n').strip(b'\r')
-                            test = to_str(test)
-                            print("io error test:", test)
-                            self.get_logger().info("Waking up serial port...")
-                            if test == 'Invalid Command':
-                                #self.device.serial_port.flushInput()
-                                #self.device.serial_port.flushOutput()
-                                self.device.serial_port.flush()
-                                break
-                        self.get_logger().info("Serial connection re-established.")
-                        break
-                    except:
-                        #self.loop_rate.sleep()
-                        time.sleep(0.5)
-                        self.diagnostics_publisher.update()
-                        continue
-        
+        if False:
+            try:
+                # Update read counters
+                #self.device.diagnostics.reads += 1
+                #self.device.diagnostics.total_reads += 1
+                in_waiting = self.device.serial_port.in_waiting
+                #print("polling in_waiting:", in_waiting)
+
+                # Add this heartbeat to the frequency status diagnostic task
+                #self.device.diagnostics.freq_diag.tick()
+                # Let the diagnostics updater know we're still alive
+                #self.device.diagnostics.watchdog = True
+            except IOError:
+                # Update error counter
+                #self.device.diagnostics.errors += 1
+                self.get_logger().info("Lost serial connection. Waiting to reconnect...")
+                # Let the diagnostics updater know that we're down
+                #self.device.diagnostics.watchdog = False
+                self.device.close()
+                with mutex:
+                    while True:
+                        try:
+                            self.device.open()
+                            while True:
+                                self.device.serial_port.write(b'\r')
+                                test = self.device.serial_port.readline().strip(b'\n').strip(b'\r')
+                                test = to_str(test)
+                                print("io error test:", test)
+                                self.get_logger().info("Waking up serial port...")
+                                if test == 'Invalid Command':
+                                    #self.device.serial_port.flushInput()
+                                    #self.device.serial_port.flushOutput()
+                                    self.device.serial_port.flush()
+                                    break
+                            self.get_logger().info("Serial connection re-established.")
+                            break
+                        except:
+                            #self.loop_rate.sleep()
+                            time.sleep(0.5)
+                            #self.diagnostics_publisher.update()
+                            continue
+
         # Poll any sensors
         for sensor in self.device.sensors:
             if sensor.rate != 0:
@@ -523,13 +505,11 @@ def rcl_while_loop(self):
             self.t_next_sensors = now + self.t_delta_sensors
             
         # Update diagnostics and publish
-        self.diagnostics_publisher.update()
+        #self.diagnostics_publisher.update()
         #self.get_logger().info("----- loop -----")
 
         self.loop_rate.sleep()
         #time.sleep(0.5)
-
-        #timer.stop()
         #print(self.inum)
         self.inum += 1
 
