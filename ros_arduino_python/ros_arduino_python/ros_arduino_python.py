@@ -54,11 +54,17 @@ class ArduinoROS(Node):
         super().destroy_node()
 
     def timer_callback(self):
+        left_enc, right_enc = self.device.get_encoder_counts()
+
         str_msg = String()
-        str_msg.data = 'Hello World: %d' % self.inum
+        str_msg.data = ''
+        str_msg.data += 'i=%d ' % self.inum
+        str_msg.data += 'e=%d %d ' % (left_enc, right_enc)
+        str_msg.data += ''
+        
         self.strtopicPub.publish(str_msg)
         # self.get_logger().info('Publishing: str_msg "%s"' % str_msg.data)
-        self.inum += 1
+        #self.inum += 1
 
         #sensor_state_msg = SensorState()
         #sensor_state_msg.name = ["state1", "state2"]
@@ -130,8 +136,8 @@ class ArduinoROS(Node):
         # The SensorState publisher periodically publishes the values of all sensors on
         # a single topic.
         self.sensorStatePub = self.create_publisher(SensorState, 'sensor_state', 5)
-        self.strtopicPub = self.create_publisher(String, 'strtopic', 10)
-        #self.timer = self.create_timer(1, self.timer_callback)
+        self.strtopicPub = self.create_publisher(String, 'ctrlinfo', 10)
+        self.timer = self.create_timer(1, self.timer_callback)
         #self.cmd_vel_sub = self.create_subscription(Twist, 'cmd_vel', self.cmdVelCallback, 1)
 
         # A service to attach a PWM servo to a specified pin
